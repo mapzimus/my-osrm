@@ -12,6 +12,15 @@ road-trip optimizer.
 | US major roads | `data/osrm-major/us-major.osrm` | 5000 | ~5 GB | Yes |
 | US + Canada major roads | `data/osrm-major-na/north-america-major.osrm` | 5001 | ~6 GB | Yes |
 
+| **US + Canada major roads + ferries** (recommended) | `data/osrm-na-ferry/na-ferry.osrm` | 5002 | ~6 GB | Yes. Report card **8/8** |
+
+The ferry build adds every car ferry plus the shortest legal road path in *and* out of each dock
+(`scripts/ferry_connectors.py`), then builds with `scripts/build_ferry_engine.py`.
+
+| Report card (`benchmarks/`) | US major | US+CA major | US+CA + ferries |
+|---|---|---|---|
+| Score | 2/6 | 4/8 | **8/8** |
+
 "Major roads" = `motorway, trunk, primary, secondary, tertiary` + their `_link` ramps (see `scripts/filter_pbf.sh`).
 Raw extracts (`data/us-latest.osm.pbf`, `data/canada-latest.osm.pbf`) are Geofabrik downloads from May 2026.
 
