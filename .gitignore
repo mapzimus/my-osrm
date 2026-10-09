@@ -1,0 +1,8 @@
+# Map data: raw OSM extracts + built OSRM artifacts (~100 GB). Never commit.
+data/*
+!data/.gitkeep
+
+# Local tooling
+.remember/
+.env
+logs/
