@@ -36,6 +36,11 @@ MAJOR = {
 MINOR = {"unclassified", "residential", "service", "living_street", "road"}
 BOX_DEG = 0.06          # search area around each dock (~6 km)
 NO = {"no", "private"}
+# Ferry staging lanes are often tagged access=private ("ticket holders"),
+# which OSRM's car profile refuses. Allow them as dock connectors at a cost
+# penalty (public roads win when they exist), then strip the tag on output.
+GATED = {"private", "destination", "customers", "permit"}
+GATED_PENALTY = 3.0
 
 
 def run(*args: str) -> None:
@@ -56,6 +61,7 @@ class Ferries(osmium.SimpleHandler):
     def __init__(self) -> None:
         super().__init__()
         self.ways: dict[int, dict] = {}
+        self.ferry_ways_at: dict[int, int] = defaultdict(int)
 
     def way(self, w) -> None:
         t = w.tags
@@ -70,6 +76,10 @@ class Ferries(osmium.SimpleHandler):
             "name": t.get("name", ""),
             "ends": [(n.ref, n.lon, n.lat) for n in ends],
         }
+        # Long crossings are split into several ferry ways; their shared
+        # joints touch no road and must not be mistaken for stranded docks.
+        for ref in {n.ref for n in w.nodes}:
+            self.ferry_ways_at[ref] += 1
 
 
 class RoadGraph(osmium.SimpleHandler):
@@ -79,18 +89,23 @@ class RoadGraph(osmium.SimpleHandler):
         super().__init__()
         self.adj: dict[int, list[tuple[int, float, int]]] = defaultdict(list)
         self.major_nodes: set[int] = set()
+        self.gated_ways: set[int] = set()
 
     def way(self, w) -> None:
         hw = w.tags.get("highway")
         if hw not in MAJOR and hw not in MINOR:
             return
-        if w.tags.get("access") in NO or w.tags.get("motor_vehicle") in NO:
+        access = {w.tags.get(k) for k in ("access", "vehicle", "motor_vehicle", "motorcar")}
+        if "no" in access:
             return
+        gated = bool(access & GATED)
+        if gated:
+            self.gated_ways.add(w.id)
         refs = [(n.ref, (n.lon, n.lat)) for n in w.nodes]
-        if hw in MAJOR:
+        if hw in MAJOR and not gated:
             self.major_nodes.update(r for r, _ in refs)
         for (a, pa), (b, pb) in zip(refs, refs[1:]):
-            d = meters(pa, pb)
+            d = meters(pa, pb) * (GATED_PENALTY if gated else 1.0)
             self.adj[a].append((b, d, w.id))
             self.adj[b].append((a, d, w.id))
 
@@ -120,7 +135,26 @@ def connector(graph: RoadGraph, start: int) -> tuple[str, float, list[int]]:
                 dist[nxt] = nd
                 prev[nxt] = (node, way_id)
                 heapq.heappush(heap, (nd, nxt))
-    return "unreached", 0.0, []
+    # No major road in reach: an island (or isolated shore) served only by
+    # minor roads. Those roads ARE the destination, so keep all of them.
+    return "island", 0.0, sorted({way_id for _, way_id in prev.values()})
+
+
+def ungate(src: Path, dst: Path, way_ids: set[int]) -> int:
+    """Copy src to dst, dropping gated access tags on the given ways."""
+    dst.unlink(missing_ok=True)
+    changed = 0
+    with osmium.SimpleWriter(str(dst)) as writer:
+        for obj in osmium.FileProcessor(str(src)):
+            if obj.is_way() and obj.id in way_ids:
+                tags = {k: v for k, v in obj.tags
+                        if not (k in {"access", "vehicle", "motor_vehicle", "motorcar"}
+                                and v in GATED)}
+                writer.add_way(obj.replace(tags=tags))
+                changed += 1
+            else:
+                writer.add(obj)
+    return changed
 
 
 def main(raw: str, out_dir: str) -> None:
@@ -134,7 +168,9 @@ def main(raw: str, out_dir: str) -> None:
     result_pbf = out / "ferry-connectors.osm.pbf"
 
     # 1. All ferry ways (+ their nodes, so endpoints have locations).
-    run("osmium", "tags-filter", "--overwrite", "-o", str(ferries_pbf), raw, "w/route=ferry")
+    #    Steps 1-2 each scan the full extract; skip them on re-runs.
+    if not ferries_pbf.exists():
+        run("osmium", "tags-filter", "-o", str(ferries_pbf), raw, "w/route=ferry")
     ferries = Ferries()
     ferries.apply_file(str(ferries_pbf), locations=True)
     print(f"car ferries: {len(ferries.ways)}", flush=True)
@@ -148,8 +184,9 @@ def main(raw: str, out_dir: str) -> None:
     boxes_json.write_text(json.dumps(
         {"type": "Feature", "properties": {}, "geometry": mapping(area)}
     ))
-    run("osmium", "extract", "--overwrite", "-p", str(boxes_json),
-        "-o", str(near_pbf), raw)
+    if not near_pbf.exists():
+        run("osmium", "extract", "-p", str(boxes_json),
+            "-o", str(near_pbf), raw)
 
     # 3. Shortest minor-road path from each dock to the major network.
     graph = RoadGraph()
@@ -159,6 +196,8 @@ def main(raw: str, out_dir: str) -> None:
     for fid, f in ferries.ways.items():
         for ref, lon, lat in f["ends"]:
             status, meters_, ways = connector(graph, ref)
+            if status == "floating" and ferries.ferry_ways_at[ref] > 1:
+                status = "ferry_joint"
             keep.update(ways)
             report.append({
                 "ferry_way": fid, "name": f["name"], "node": ref,
@@ -168,8 +207,11 @@ def main(raw: str, out_dir: str) -> None:
 
     # 4. Ferry ways + connector ways (with their nodes) -> one PBF.
     ids_txt.write_text("".join(f"w{i}\n" for i in sorted(keep)))
+    raw_connectors = out / "connector-ways-raw.osm.pbf"
     run("osmium", "getid", "--overwrite", "-r", "-i", str(ids_txt),
-        "-o", str(connectors_pbf), str(near_pbf))
+        "-o", str(raw_connectors), str(near_pbf))
+    ungated = ungate(raw_connectors, connectors_pbf, keep & graph.gated_ways)
+    print(f"ungated connector ways: {ungated}", flush=True)
     run("osmium", "merge", "--overwrite", "-o", str(result_pbf),
         str(ferries_pbf), str(connectors_pbf))
 
