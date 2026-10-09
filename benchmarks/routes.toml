@@ -1,0 +1,81 @@
+# Route report card — known trips with a known "right answer".
+#
+# Each case is a trip where a naive engine gets it wrong (drives around a
+# ferry, refuses to enter Canada) plus a few controls that should never break.
+#
+# Coordinates are lon,lat (OSRM order). Thresholds are deliberately loose:
+# the question is "did it take the shortcut?", not "is it accurate to the mile".
+#   max_miles  — the shortcut route is under this; the detour is well over it
+#   needs      — "us" (any engine) or "na" (only the US+Canada engine can pass)
+
+[[case]]
+name = "Grand Isle VT -> Plattsburgh NY (Lake Champlain ferry)"
+kind = "ferry"
+needs = "us"
+from = [-73.3510, 44.7206]   # Grand Isle village
+to = [-73.4529, 44.6995]     # downtown Plattsburgh
+max_miles = 25               # ferry ~12 mi total; around via Rouses Pt ~55 mi
+note = "Gordon Landing <-> Cumberland Head, 12-min crossing, runs 24/7"
+
+[[case]]
+name = "Seattle -> Bainbridge Island (WSF)"
+kind = "ferry"
+needs = "us"
+from = [-122.3340, 47.6050]  # downtown Seattle
+to = [-122.5210, 47.6262]    # Winslow
+max_miles = 25               # ferry ~10 mi; around via Tacoma Narrows ~90 mi
+note = "Colman Dock <-> Bainbridge, 35-min crossing"
+
+[[case]]
+name = "Bridgeport CT -> Port Jefferson NY (Cross Sound)"
+kind = "ferry"
+needs = "us"
+from = [-73.1950, 41.1790]   # downtown Bridgeport
+to = [-73.0693, 40.9465]     # Port Jefferson village
+max_miles = 40               # ferry ~18 mi; around via NYC ~110 mi
+note = "Bridgeport & Port Jefferson Steamboat Co., ~75-min crossing"
+
+[[case]]
+name = "Cape May NJ -> Lewes DE (Cape May-Lewes ferry)"
+kind = "ferry"
+needs = "us"
+from = [-74.9060, 38.9350]   # Cape May
+to = [-75.1400, 38.7745]     # Lewes
+max_miles = 40               # ferry ~17 mi; around via Del. Memorial Br. ~170 mi
+note = "85-min crossing"
+
+[[case]]
+name = "Detroit -> Buffalo (via Ontario)"
+kind = "border"
+needs = "na"
+from = [-83.0458, 42.3314]
+to = [-78.8784, 42.8864]
+max_miles = 270              # via Ontario ~255 mi; around Lake Erie ~290 mi
+note = "Ambassador Bridge -> Hwy 401/403/QEW -> Peace Bridge"
+
+[[case]]
+name = "Port Huron MI -> Niagara Falls NY (via Ontario)"
+kind = "border"
+needs = "na"
+from = [-82.4249, 42.9709]
+to = [-79.0377, 43.0962]
+max_miles = 250              # via Hwy 402/403/QEW ~215 mi; around Erie ~370 mi
+note = "Blue Water Bridge -> Lewiston-Queenston or Rainbow Bridge"
+
+[[case]]
+name = "DC -> Boston (control)"
+kind = "control"
+needs = "us"
+from = [-77.0365, 38.8977]
+to = [-71.0589, 42.3601]
+max_miles = 460              # ~440 mi via I-95
+note = "Should never change. Sanity check that nothing broke."
+
+[[case]]
+name = "Denver -> Salt Lake City (control)"
+kind = "control"
+needs = "us"
+from = [-104.9903, 39.7392]
+to = [-111.8910, 40.7608]
+max_miles = 540              # ~520 mi via I-80
+note = "Should never change."
