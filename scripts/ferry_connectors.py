@@ -82,12 +82,36 @@ class Ferries(osmium.SimpleHandler):
             self.ferry_ways_at[ref] += 1
 
 
+Adjacency = dict[int, list[tuple[int, float, int]]]
+
+
+def oneway(tags) -> int:
+    """+1 forward only, -1 reverse only, 0 both ways (OSM oneway rules)."""
+    ow = tags.get("oneway")
+    if ow in {"yes", "true", "1"}:
+        return 1
+    if ow == "-1":
+        return -1
+    if ow == "no":
+        return 0
+    if tags.get("junction") in {"roundabout", "circular"} or tags.get("highway") == "motorway":
+        return 1
+    return 0
+
+
 class RoadGraph(osmium.SimpleHandler):
-    """Undirected node graph of car-routable roads near the docks."""
+    """Directed node graph of car-routable roads near the docks.
+
+    `out` follows legal driving direction; `inn` is its reverse, so a search
+    on `inn` from a dock finds the way IN to it. A dock needs both: an
+    undirected search kept only one lane per dock, so Cross Sound cars could
+    board in Bridgeport but never leave the dock in Port Jefferson.
+    """
 
     def __init__(self) -> None:
         super().__init__()
-        self.adj: dict[int, list[tuple[int, float, int]]] = defaultdict(list)
+        self.out: Adjacency = defaultdict(list)
+        self.inn: Adjacency = defaultdict(list)
         self.major_nodes: set[int] = set()
         self.gated_ways: set[int] = set()
 
@@ -104,18 +128,23 @@ class RoadGraph(osmium.SimpleHandler):
         refs = [(n.ref, (n.lon, n.lat)) for n in w.nodes]
         if hw in MAJOR and not gated:
             self.major_nodes.update(r for r, _ in refs)
+        direction = oneway(w.tags)
         for (a, pa), (b, pb) in zip(refs, refs[1:]):
             d = meters(pa, pb) * (GATED_PENALTY if gated else 1.0)
-            self.adj[a].append((b, d, w.id))
-            self.adj[b].append((a, d, w.id))
+            if direction >= 0:
+                self.out[a].append((b, d, w.id))
+                self.inn[b].append((a, d, w.id))
+            if direction <= 0:
+                self.out[b].append((a, d, w.id))
+                self.inn[a].append((b, d, w.id))
 
 
-def connector(graph: RoadGraph, start: int) -> tuple[str, float, list[int]]:
-    """Dijkstra from a dock node to the nearest major-road node."""
-    if start in graph.major_nodes:
-        return "on_major", 0.0, []
-    if start not in graph.adj:
-        return "floating", 0.0, []  # no road touches this ferry end
+def search(adj: Adjacency, majors: set[int], start: int) -> tuple[bool, float, set[int]]:
+    """Dijkstra to the nearest major node.
+
+    Returns (reached, meters, ways): the path's ways if reached, otherwise
+    every way explored (the whole local minor-road network).
+    """
     dist = {start: 0.0}
     prev: dict[int, tuple[int, int]] = {}
     heap = [(0.0, start)]
@@ -123,21 +152,37 @@ def connector(graph: RoadGraph, start: int) -> tuple[str, float, list[int]]:
         d, node = heapq.heappop(heap)
         if d > dist[node]:
             continue
-        if node in graph.major_nodes:
-            ways = []
+        if node in majors:
+            ways = set()
             while node != start:
                 node, way_id = prev[node]
-                ways.append(way_id)
-            return "connected", d, sorted(set(ways))
-        for nxt, step, way_id in graph.adj[node]:
+                ways.add(way_id)
+            return True, d, ways
+        for nxt, step, way_id in adj[node]:
             nd = d + step
             if nd < dist.get(nxt, math.inf):
                 dist[nxt] = nd
                 prev[nxt] = (node, way_id)
                 heapq.heappush(heap, (nd, nxt))
+    return False, 0.0, {way_id for _, way_id in prev.values()}
+
+
+def connector(graph: RoadGraph, start: int) -> tuple[str, float, list[int]]:
+    """Keep a legal way OUT of the dock and a legal way IN to it."""
+    if start in graph.major_nodes:
+        return "on_major", 0.0, []
+    if start not in graph.out and start not in graph.inn:
+        return "floating", 0.0, []  # no road touches this ferry end
+    got_out, m_out, ways_out = search(graph.out, graph.major_nodes, start)
+    got_in, m_in, ways_in = search(graph.inn, graph.major_nodes, start)
+    ways = sorted(ways_out | ways_in)
+    if got_out and got_in:
+        return "connected", max(m_out, m_in), ways
+    if got_out or got_in:
+        return "one_way_only", max(m_out, m_in), ways
     # No major road in reach: an island (or isolated shore) served only by
     # minor roads. Those roads ARE the destination, so keep all of them.
-    return "island", 0.0, sorted({way_id for _, way_id in prev.values()})
+    return "island", 0.0, ways
 
 
 def ungate(src: Path, dst: Path, way_ids: set[int]) -> int:
