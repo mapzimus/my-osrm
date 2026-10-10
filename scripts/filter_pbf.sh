@@ -43,7 +43,7 @@ echo "[filter_pbf] filter: highway in {motorway,trunk,primary,secondary,tertiary
 docker run --rm \
     -v "${INPUT_DIR_ABS}:/in:ro" \
     -v "${OUTPUT_DIR_ABS}:/out" \
-    iboates/osmium:latest \
+    iboates/osmium@sha256:a67987f7d822d951ae1979de656ab7bd8051605f79d2751ea4800cc6057124be \
     tags-filter \
     --overwrite \
     -o "/out/${OUTPUT_NAME}" \

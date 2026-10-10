@@ -35,7 +35,7 @@ def route(url: str, src: list[float], dst: list[float]) -> tuple[float, float, b
     return r["distance"] / METERS_PER_MILE, r["duration"] / 3600, used_ferry
 
 
-def grade(case: dict, miles: float, used_ferry: bool, engine: str) -> str:
+def grade(case: dict, miles: float, hours: float, used_ferry: bool, engine: str) -> str:
     """Return "PASS", "FAIL", or "SKIP" for one case.
 
     case["max_miles"] is the shortcut threshold; case["kind"] is
@@ -52,6 +52,9 @@ def grade(case: dict, miles: float, used_ferry: bool, engine: str) -> str:
         return "FAIL"
     # Implausibly short is also broken (bad snap, missing geometry).
     if miles < case["max_miles"] * 0.3:
+        return "FAIL"
+    # Right road, wrong clock: drive time outside the real-world band.
+    if "hours" in case and not case["hours"][0] <= hours <= case["hours"][1]:
         return "FAIL"
     return "PASS"
 
@@ -72,7 +75,7 @@ def main() -> int:
             print(f"  ERROR {case['name']}: {exc}")
             scored += 1
             continue
-        result = grade(case, miles, ferry, args.engine)
+        result = grade(case, miles, hours, ferry, args.engine)
         if result != "SKIP":
             scored += 1
             passed += result == "PASS"

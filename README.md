@@ -1,50 +1,63 @@
 # my-osrm
 
-A self-hosted [OSRM](https://github.com/Project-OSRM/osrm-backend) routing engine for US (and US+Canada) driving,
-running in Docker. Extracted from [mapzimus/optitrek](https://github.com/mapzimus/optitrek), where it powered the
-road-trip optimizer.
+A self-hosted [OSRM](https://github.com/Project-OSRM/osrm-backend) routing engine for US + Canada driving,
+with ferries, running in Docker. Extracted from [mapzimus/optitrek](https://github.com/mapzimus/optitrek),
+where it powered the road-trip optimizer.
 
-## What's here
-
-| Network | Data dir | Port | Size | Runs on BRONTOSAURUS (32 GB RAM)? |
-|---|---|---|---|---|
-| Full US, every road | `data/osrm/us-latest.osrm` | 5000 | ~75 GB | **No.** Needs 64+ GB RAM (BSOD on 2026-05-21). Cloud VM only |
-| US major roads | `data/osrm-major/us-major.osrm` | 5000 | ~5 GB | Yes |
-| US + Canada major roads | `data/osrm-major-na/north-america-major.osrm` | 5001 | ~6 GB | Yes |
-
-| **US + Canada major roads + ferries** (recommended) | `data/osrm-na-ferry/na-ferry.osrm` | 5002 | ~6 GB | Yes. Report card **8/8** |
-
-The ferry build adds every car ferry plus the shortest legal road path in *and* out of each dock
-(`scripts/ferry_connectors.py`), then builds with `scripts/build_ferry_engine.py`.
-
-| Report card (`benchmarks/`) | US major | US+CA major | US+CA + ferries |
-|---|---|---|---|
-| Score | 2/6 | 4/8 | **8/8** |
-
-"Major roads" = `motorway, trunk, primary, secondary, tertiary` + their `_link` ramps (see `scripts/filter_pbf.sh`).
-Raw extracts (`data/us-latest.osm.pbf`, `data/canada-latest.osm.pbf`) are Geofabrik downloads from May 2026.
-
-`data/` is gitignored. The built artifacts were copied from `G:\dev\optitrek\data` on 2026-10-08.
-
-## Scripts (bash, run from WSL Ubuntu)
-
-| Script | Does |
-|---|---|
-| `scripts/filter_pbf.sh` | Tag-filter a full PBF down to major roads |
-| `scripts/build_osrm.sh` | extract → partition → customize (idempotent) |
-| `scripts/build_na_osrm.sh` | Download Canada, filter, merge with US-major, build |
-| `scripts/smoke_test_na_engine.sh` | Start both engines, compare cross-border routes |
-| `scripts/test_border_routing.sh` | Probe border-shortcut cases on the US-only engine |
-
-## Quick start (US major roads)
+## Quick start
 
 ```bash
-docker compose --profile major up -d osrm-major
-curl "http://localhost:5000/route/v1/driving/-77.0365,38.8977;-71.0589,42.3601?overview=false"
+docker compose up -d                      # US + Canada + ferries on :5002
+python benchmarks/report_card.py --url http://127.0.0.1:5002 --engine na
 ```
+
+Grand Isle VT → Plattsburgh NY over the Lake Champlain ferry:
+`http://127.0.0.1:5002/route/v1/driving/-73.3510,44.7206;-73.4529,44.6995?overview=false`
+
+## Engines
+
+| Engine | Compose service | Port | Size | Report card |
+|---|---|---|---|---|
+| **US + Canada major roads + ferries** | `na-ferry` (default) | 5002 | ~6 GB | **see below** |
+| US + Canada major roads | `na-major` (`--profile major`) | 5001 | ~6 GB | 4/8 |
+| US major roads | `us-major` (`--profile major`) | 5000 | ~5 GB | 2/6 |
+| Full US, every road | `us-full` (`--profile full`) | 5003 | ~75 GB | needs 64+ GB RAM: cloud VM only |
+
+"Major roads" = `motorway, trunk, primary, secondary, tertiary` + their `_link` ramps.
+Raw extracts (`data/*.osm.pbf`) are Geofabrik downloads from May 2026. Alaska and Hawaii are included
+(Seattle → Anchorage needs the Canada engines; each Hawaiian island is its own network).
+
+## How the ferry engine works
+
+The major-roads filter strips the small service roads that link ferry docks to the highway network, so
+ferries were stranded islands. `scripts/ferry_connectors.py` keeps every car ferry plus, for each dock,
+the shortest *legal* path out and in (one-way aware) to the major network. It also keeps small-road
+islands whole and opens `access=private` ferry staging lanes. `scripts/build_ferry_engine.py` merges
+that into the US + Canada major roads and builds.
+
+## Drive times
+
+`profiles/car.lua` is OSRM's stock car profile with one change: `speed_reduction` 0.8 → 0.95. Stock
+OSRM multiplies every posted limit by 0.8, which made interstates ~52 mph and DC → Boston 9.2 h.
+The report card's control cases check drive times against real-world bands.
+
+## Layout
+
+| Path | What |
+|---|---|
+| `benchmarks/` | Report card: known trips with known answers (ferries, border shortcuts, controls) |
+| `profiles/car.lua` | Calibrated car profile, mounted over `/opt/car.lua` in every build |
+| `scripts/build_ferry_engine.py` | Build the recommended engine (runs from Windows; only needs docker) |
+| `scripts/ferry_connectors.py` | Ferry + dock-connector extraction (runs in the `tools/` image) |
+| `scripts/filter_pbf.sh` | Tag-filter a full PBF down to major roads |
+| `scripts/build_osrm.sh`, `build_na_osrm.sh` | Build the older single-extract / no-ferry engines |
+| `scripts/inspect_node.py` | Debug: list every way touching an OSM node |
+| `tools/Dockerfile` | `my-osrm-tools`: osmium + pyosmium + shapely |
+
+All Docker images are pinned by digest (OSRM v26.5.0, osmium 1.19.0). `data/` (~110 GB) is gitignored.
 
 ## Roadmap
 
-1. **Import** (done): engine files + data copied from optitrek, verbatim.
-2. **Audit & improve**: get it running, pin versions, de-optitrek the names, verify data integrity.
-3. **Experiments**: fun stuff on top of the engine.
+1. ~~Import from optitrek~~
+2. ~~Audit & improve~~: ferries, Canada, pinned images, calibrated drive times
+3. **Experiments**

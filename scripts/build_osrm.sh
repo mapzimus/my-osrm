@@ -1,26 +1,28 @@
 #!/usr/bin/env bash
-# build_osrm.sh — one-shot bring-up of OSRM for Optitrek Tier 1.
+# build_osrm.sh — build a single-extract OSRM engine (US-only by default).
 #
-# Downloads the US-only OSM extract from Geofabrik (per DECISIONS.md D3 —
-# prevents the solver from routing through Canada) and runs the three-stage
-# osrm-backend pipeline against it. Result: a ready-to-serve us-latest.osrm
-# under data/osrm/, plus a docker-compose service that exposes OSRM on :5000.
+# Downloads an OSM extract (default: Geofabrik US) and runs the three-stage
+# osrm-backend pipeline against it with profiles/car.lua. Result: a
+# ready-to-serve <base>.osrm under the output dir.
+#
+# For the recommended US+Canada+ferries engine, use
+# scripts/build_ferry_engine.py instead.
 #
 # Requirements: docker, ~25GB free disk, ~30-60min on first run (extract +
-# partition + customize is CPU-bound; partition is the slow step).
+# partition + customize is CPU-bound).
 #
 # Usage:
-#   cd "$(git rev-parse --show-toplevel)"
-#   ./scripts/build_osrm.sh
-#   docker compose up -d osrm
-#   curl http://localhost:5000/route/v1/driving/-77.0365,38.8977;-71.0589,42.3601
+#   ./scripts/build_osrm.sh                                   # full US (cloud VM only)
+#   ./scripts/build_osrm.sh data/osrm-major/us-major.osm.pbf data/osrm-major us-major
 #
 # Idempotent — checks for each artifact before recomputing.
 
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-OSRM_IMAGE="ghcr.io/project-osrm/osrm-backend:latest"
+# Pinned: OSRM v26.5.0, the image that built the existing artifacts.
+OSRM_IMAGE="ghcr.io/project-osrm/osrm-backend@sha256:aa6a1de3a71dafffd0ba39340542524f66e6841fc19bf7874a0e6a7967837f56"
+PROFILE="${REPO_ROOT}/profiles/car.lua"
 
 # Positional args (all optional, default to original full-US behavior):
 #   $1 = PBF source URL or existing local PBF path (default: Geofabrik US)
@@ -67,12 +69,15 @@ else
 fi
 
 # --- 2. osrm-extract ---
-if [[ -f "${OSRM_FILE}" ]]; then
-    log "Extract artifact already present: ${OSRM_FILE}"
+# Sentinel is .fileIndex: OSRM v26 never writes a bare <base>.osrm file, so
+# checking for it (as this script used to) re-ran the 30+ min extract every time.
+if [[ -f "${OSRM_FILE}.fileIndex" ]]; then
+    log "Extract artifact already present: ${OSRM_FILE}.fileIndex"
 else
-    log "Running osrm-extract (uses car.lua profile, threads=${THREADS})"
+    log "Running osrm-extract (profiles/car.lua, threads=${THREADS})"
     docker run --rm -t \
         -v "${OSRM_DIR}:/data" \
+        -v "${PROFILE}:/opt/car.lua:ro" \
         "${OSRM_IMAGE}" \
         osrm-extract -p /opt/car.lua --threads "${THREADS}" "/data/${OSRM_BASE}.osm.pbf"
 fi
@@ -104,5 +109,5 @@ else
 fi
 
 log "OSRM artifacts ready in ${OSRM_DIR}"
-log "Start the server with:  docker compose up -d osrm"
-log "Smoke test:             curl 'http://localhost:5000/route/v1/driving/-77.0365,38.8977;-71.0589,42.3601'"
+log "Serve it via a docker-compose.yml service, then score it:"
+log "  python benchmarks/report_card.py --url http://127.0.0.1:<port>"

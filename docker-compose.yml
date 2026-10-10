@@ -1,52 +1,66 @@
-# Optitrek — OSRM routing engine
+# my-osrm — OSRM routing engines
 #
-# Bring-up:
-#   1. ./scripts/build_osrm.sh    # downloads us-latest.osm.pbf, runs the
-#                                 # three osrm-backend processing stages
-#   2. docker compose up -d osrm  # starts the routed server on :5000
+#   docker compose up -d                       # default: US+Canada+ferries on :5002
+#   docker compose --profile major up -d       # + the two older major-roads engines
+#   curl "http://127.0.0.1:5002/route/v1/driving/-73.3510,44.7206;-73.4529,44.6995?overview=false"
 #
-# Health check:
-#   curl http://localhost:5000/route/v1/driving/-77.0365,38.8977;-71.0589,42.3601
-#
-# Decision D3: US-only extract — prevents routing through Canada.
+# All ports bind to 127.0.0.1 (this PC only). Builds: see README.md.
+
+x-osrm: &osrm
+  # Pinned: the exact image that built the artifacts (OSRM v26.5.0). Data
+  # formats change between OSRM versions, so never float this on :latest.
+  image: ghcr.io/project-osrm/osrm-backend@sha256:aa6a1de3a71dafffd0ba39340542524f66e6841fc19bf7874a0e6a7967837f56
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD-SHELL", "wget -qO- http://localhost:5000/route/v1/driving/-77.0,38.9;-77.0,38.9 || exit 1"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 60s
 
 services:
-  # FULL US network — kept for reference. Will NOT run on BRONTOSAURUS
-  # (32 GB RAM is below OSRM's actual peak; caused a BSOD on 2026-05-21).
-  # Use only on a cloud VM with >=64 GB RAM.
-  osrm:
-    image: ghcr.io/project-osrm/osrm-backend:latest
-    container_name: optitrek-osrm
-    # --max-table-size raised so /table can handle a 400+ POI source batch.
-    command: osrm-routed --algorithm mld --max-table-size 8000 /data/us-latest.osrm
+  # Recommended engine. US + Canada major roads + every car ferry with its
+  # dock connectors (scripts/build_ferry_engine.py). Report card 8/8.
+  na-ferry:
+    <<: *osrm
+    container_name: my-osrm-na-ferry
+    # --max-table-size raised so /table can handle 400+ point matrices.
+    command: osrm-routed --algorithm mld --max-table-size 8000 /data/na-ferry.osrm
     volumes:
-      - ./data/osrm:/data
+      - ./data/osrm-na-ferry:/data:ro
     ports:
-      - "5000:5000"
-    restart: unless-stopped
-    profiles: ["full"]
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/route/v1/driving/-77.0,38.9;-77.0,38.9 || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+      - "127.0.0.1:5002:5000"
 
-  # MAJOR-ROADS network — what BRONTOSAURUS actually runs.
-  # Built from the tag-filtered PBF; artifacts ~8-12 GB.
-  osrm-major:
-    image: ghcr.io/project-osrm/osrm-backend:latest
-    container_name: optitrek-osrm-major
+  # US major roads only (no Canada, no ferries). Report card 2/6.
+  us-major:
+    <<: *osrm
+    container_name: my-osrm-us-major
     command: osrm-routed --algorithm mld --max-table-size 8000 /data/us-major.osrm
     volumes:
-      - ./data/osrm-major:/data
+      - ./data/osrm-major:/data:ro
     ports:
-      - "5000:5000"
-    restart: unless-stopped
+      - "127.0.0.1:5000:5000"
     profiles: ["major"]
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/route/v1/driving/-77.0,38.9;-77.0,38.9 || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+
+  # US + Canada major roads (no ferries). Report card 4/8.
+  na-major:
+    <<: *osrm
+    container_name: my-osrm-na-major
+    command: osrm-routed --algorithm mld --max-table-size 8000 /data/north-america-major.osrm
+    volumes:
+      - ./data/osrm-major-na:/data:ro
+    ports:
+      - "127.0.0.1:5001:5000"
+    profiles: ["major"]
+
+  # Full US, every road (~75 GB). Needs 64+ GB RAM: crashed BRONTOSAURUS
+  # (32 GB) with a BSOD on 2026-05-21. Cloud VM only.
+  us-full:
+    <<: *osrm
+    container_name: my-osrm-us-full
+    command: osrm-routed --algorithm mld --max-table-size 8000 /data/us-latest.osrm
+    volumes:
+      - ./data/osrm:/data:ro
+    ports:
+      - "127.0.0.1:5003:5000"
+    profiles: ["full"]

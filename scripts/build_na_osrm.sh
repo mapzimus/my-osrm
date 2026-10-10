@@ -12,8 +12,10 @@
 #
 # Idempotent — each stage checks for its sentinel file before running.
 #
-# Usage (from WSL Ubuntu):
-#   cd /mnt/e/dev/optitrek
+# This is the no-ferries NA engine. The recommended engine adds ferries on
+# top of these inputs: scripts/build_ferry_engine.py.
+#
+# Usage (bash: WSL, Git Bash, or Linux, from the repo root):
 #   ./scripts/build_na_osrm.sh
 
 set -euo pipefail
@@ -26,8 +28,10 @@ CA_PBF_RAW="${DATA_DIR}/canada-latest.osm.pbf"
 CA_PBF_MAJOR="${NA_DIR}/canada-major.osm.pbf"
 NA_PBF_MERGED="${NA_DIR}/north-america-major.osm.pbf"
 NA_OSRM="${NA_DIR}/north-america-major.osrm"
-OSRM_IMAGE="ghcr.io/project-osrm/osrm-backend:latest"
-OSMIUM_IMAGE="iboates/osmium:latest"
+# Pinned images: OSRM v26.5.0 (built the existing artifacts), osmium 1.19.0.
+OSRM_IMAGE="ghcr.io/project-osrm/osrm-backend@sha256:aa6a1de3a71dafffd0ba39340542524f66e6841fc19bf7874a0e6a7967837f56"
+OSMIUM_IMAGE="iboates/osmium@sha256:a67987f7d822d951ae1979de656ab7bd8051605f79d2751ea4800cc6057124be"
+PROFILE="${REPO_ROOT}/profiles/car.lua"
 PBF_URL="https://download.geofabrik.de/north-america/canada-latest.osm.pbf"
 
 # Threads for osrm-extract/partition/customize — same default as build_osrm.sh
@@ -109,12 +113,14 @@ else
 fi
 
 # ---- 5. osrm-extract ----
-if [[ -f "${NA_OSRM}" ]]; then
+# .fileIndex, not the bare .osrm: OSRM v26 never writes the bare file.
+if [[ -f "${NA_OSRM}.fileIndex" ]]; then
     log "osrm-extract artifact already present"
 else
     log "Running osrm-extract on merged PBF (~5-10 min)"
     docker run --rm -t \
         -v "${NA_DIR}:/data" \
+        -v "${PROFILE}:/opt/car.lua:ro" \
         "${OSRM_IMAGE}" \
         osrm-extract -p /opt/car.lua --threads "${THREADS}" /data/north-america-major.osm.pbf
 fi
@@ -144,11 +150,4 @@ fi
 log "NA OSRM artifact set ready at ${NA_DIR}"
 log "Total size: $(du -sh "${NA_DIR}" | cut -f1)"
 log ""
-log "Start the NA server with:"
-log "  docker run -d --name optitrek-osrm-na --rm \\"
-log "    -p 127.0.0.1:5001:5000 \\"
-log "    -v ${NA_DIR}:/data:ro \\"
-log "    ${OSRM_IMAGE} \\"
-log "    osrm-routed --algorithm mld --max-table-size 8000 /data/north-america-major.osrm"
-log ""
-log "(Port 5001 instead of 5000 so it can coexist with the US-only engine.)"
+log "Serve it on :5001 with:  docker compose --profile major up -d na-major"

@@ -7,6 +7,8 @@
 # the question is "did it take the shortcut?", not "is it accurate to the mile".
 #   max_miles  — the shortcut route is under this; the detour is well over it
 #   needs      — "us" (any engine) or "na" (only the US+Canada engine can pass)
+#   hours      — optional [low, high] drive-time band; catches a profile that
+#                is too slow (stock OSRM: DC->Boston 9.2 h) or too fast
 
 [[case]]
 name = "Grand Isle VT -> Plattsburgh NY (Lake Champlain ferry)"
@@ -69,6 +71,7 @@ needs = "us"
 from = [-77.0365, 38.8977]
 to = [-71.0589, 42.3601]
 max_miles = 460              # ~440 mi via I-95
+hours = [6.8, 8.0]           # free-flow ~7-7.5 h
 note = "Should never change. Sanity check that nothing broke."
 
 [[case]]
@@ -78,4 +81,5 @@ needs = "us"
 from = [-104.9903, 39.7392]
 to = [-111.8910, 40.7608]
 max_miles = 540              # ~520 mi via I-80
+hours = [7.0, 8.5]           # free-flow ~7.5-8 h
 note = "Should never change."

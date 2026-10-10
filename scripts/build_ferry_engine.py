@@ -40,8 +40,11 @@ INPUTS = [
 
 
 def docker(image: str, *args: str) -> None:
-    cmd = ["docker", "run", "--rm", "-v", f"{DATA}:/data", image, *args]
-    print("+", " ".join(cmd[5:]), flush=True)
+    # Our car.lua replaces the stock one in place, so its require('lib/...')
+    # calls still resolve against the image's /opt/lib.
+    cmd = ["docker", "run", "--rm", "-v", f"{DATA}:/data",
+           "-v", f"{ROOT / 'profiles' / 'car.lua'}:/opt/car.lua:ro", image, *args]
+    print("+", " ".join(cmd[7:]), flush=True)
     subprocess.run(cmd, check=True)
 
 
