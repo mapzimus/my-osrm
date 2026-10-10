@@ -65,6 +65,24 @@ max_miles = 250              # via Hwy 402/403/QEW ~215 mi; around Erie ~370 mi
 note = "Blue Water Bridge -> Lewiston-Queenston or Rainbow Bridge"
 
 [[case]]
+name = "San Diego -> Ensenada MX (into Mexico)"
+kind = "border"
+needs = "na"
+from = [-117.1611, 32.7157]
+to = [-116.5964, 31.8667]
+max_miles = 110              # ~85 mi via Tijuana and Hwy 1D; no route without Mexico
+note = "San Ysidro crossing -> Carretera Escénica"
+
+[[case]]
+name = "La Paz -> Mazatlan MX (Baja ferry)"
+kind = "ferry"
+needs = "na"
+from = [-110.3128, 24.1426]
+to = [-106.4111, 23.2494]
+max_miles = 400              # ferry ~280 mi total; around via Mexicali ~1,900 mi
+note = "Baja Ferries Pichilingue <-> Mazatlan, overnight"
+
+[[case]]
 name = "DC -> Boston (control)"
 kind = "control"
 needs = "us"

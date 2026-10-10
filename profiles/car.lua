@@ -441,6 +441,16 @@ function process_way(profile, way, result, relations)
     return
   end
 
+  -- my-osrm: model summer driving. Winter/ice roads (e.g. northern Manitoba,
+  -- Tibbitt-Contwoyto) open ~6-10 weeks a year, and ~380 of them are tagged
+  -- secondary/tertiary, so stock OSRM routes over frozen lakes year-round.
+  if way:get_value_by_key('winter_road') == 'yes' or
+     way:get_value_by_key('ice_road') == 'yes' or
+     way:get_value_by_key('seasonal') == 'winter'
+  then
+    return
+  end
+
   handlers = Sequence {
     -- set the default mode for this profile. if can be changed later
     -- in case it turns we're e.g. on a ferry
