@@ -6,3 +6,6 @@ data/*
 .remember/
 .env
 logs/
+
+# Experiment caches (re-computable in seconds)
+experiments/*/cache/
