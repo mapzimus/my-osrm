@@ -1,10 +1,12 @@
-"""Drive-time isochrone map: everywhere reachable from an origin in 1..8 hours.
+"""Drive-time isochrone map: everywhere reachable from an origin, by hour.
 
 Uses the local OSRM engine (US + Canada + ferries) and writes one
 self-contained HTML map.
 
-    python experiments/isochrone/isochrone.py                 # Boston, :5002
-    python experiments/isochrone/isochrone.py --origin -71.0589,42.3601 --name Boston
+    # Regional: 1-8 h from Boston
+    python experiments/isochrone/isochrone.py
+    # Coast to coast: every hour it takes, Lower 48 + southern Canada
+    python experiments/isochrone/isochrone.py --region national
 
 How it works:
   1. Lay a grid over the region, spaced evenly in Web Mercator so the final
@@ -14,7 +16,8 @@ How it works:
   3. Effective time = drive time + the snap distance at local-road speed.
      Points more than MAX_SNAP_M from any road (open water, roadless woods)
      are left blank rather than painted with a misleading time.
-  4. Upsample + band into hours, paint as a transparent PNG, embed in Leaflet.
+  4. Upsample + band into whole hours, paint as a transparent PNG, embed in
+     Leaflet.
 """
 
 from __future__ import annotations
@@ -32,21 +35,32 @@ from pathlib import Path
 import numpy as np
 from matplotlib import colormaps
 from matplotlib.image import imsave
-from scipy.ndimage import zoom
+import subprocess
+
+from scipy.ndimage import binary_dilation, distance_transform_edt, zoom
 
 HERE = Path(__file__).resolve().parent
 CACHE = HERE / "cache"
 OUT = HERE / "out"
 
-HOURS = 8
-STEP_DEG = 0.04            # grid spacing in longitude (~3.3 km at 42N)
 BATCH = 400                # destinations per /table request (keeps URLs short)
 MAX_SNAP_M = 5_000         # farther than this from a road = blank
 LOCAL_SPEED_MS = 40 / 3.6  # off-network leg at local-road speed (40 km/h)
-UPSAMPLE = 4
+DAY_HOURS = 8              # one "driving day", for the long-trip legend
+FILL_KM = 75               # land farther than this from any road stays blank
 
-# Labeled destinations. Island ones only work because of the ferry build.
+# west, south, east, north; grid step (deg); max hours (0 = auto); upsample
+REGIONS = {
+    "regional": ((-82, 36.5, -59, 49.5), 0.04, 8, 4),
+    "national": ((-127, 24.3, -52, 55), 0.05, 0, 2),
+    # + Alaska and the Yukon (only reachable through Canada)
+    "continental": ((-168, 24.3, -52, 71.5), 0.05, 0, 2),
+}
+
+# Labeled destinations; only those inside the map's bounds are drawn.
+# The island ones only work because of the ferry build.
 CITIES = {
+    # Northeast
     "New York": (-73.9857, 40.7484), "Philadelphia": (-75.1652, 39.9526),
     "Washington DC": (-77.0365, 38.8977), "Pittsburgh": (-79.9959, 40.4406),
     "Albany": (-73.7562, 42.6526), "Buffalo": (-78.8784, 42.8864),
@@ -58,6 +72,36 @@ CITIES = {
     "Nantucket": (-70.0995, 41.2835), "Martha's Vineyard": (-70.5990, 41.4543),
     "Block Island": (-71.5772, 41.1720), "Montauk": (-71.9545, 41.0359),
     "Charlottetown PEI": (-63.1311, 46.2382),
+    # Rest of the continent
+    "St. John's NL": (-52.7126, 47.5615), "Chicago": (-87.6298, 41.8781),
+    "Detroit": (-83.0458, 42.3314), "Atlanta": (-84.3880, 33.7490),
+    "Miami": (-80.1918, 25.7617), "Key West": (-81.7800, 24.5551),
+    "Nashville": (-86.7816, 36.1627), "New Orleans": (-90.0715, 29.9511),
+    "Minneapolis": (-93.2650, 44.9778), "Kansas City": (-94.5786, 39.0997),
+    "Dallas": (-96.7970, 32.7767), "Houston": (-95.3698, 29.7604),
+    "Winnipeg": (-97.1384, 49.8951), "Denver": (-104.9903, 39.7392),
+    "Albuquerque": (-106.6504, 35.0844), "Calgary": (-114.0719, 51.0447),
+    "Salt Lake City": (-111.8910, 40.7608), "Phoenix": (-112.0740, 33.4484),
+    "Las Vegas": (-115.1398, 36.1699), "Boise": (-116.2023, 43.6150),
+    "San Diego": (-117.1611, 32.7157), "Los Angeles": (-118.2437, 34.0522),
+    "San Francisco": (-122.4194, 37.7749), "Portland OR": (-122.6765, 45.5231),
+    "Seattle": (-122.3321, 47.6062), "Vancouver": (-123.1207, 49.2827),
+    "Victoria BC": (-123.3656, 48.4284),
+    # North
+    "Whitehorse": (-135.0568, 60.7212), "Anchorage": (-149.9003, 61.2181),
+    "Fairbanks": (-147.7164, 64.8378), "Prudhoe Bay": (-148.3360, 70.2550),
+    "Homer AK": (-151.5483, 59.6425), "Haines AK": (-135.4450, 59.2358),
+    "Yellowknife": (-114.3718, 62.4540),
+}
+
+
+# Always labeled on long-trip maps; the rest get labels once zoomed in.
+MAJOR = {
+    "New York", "Washington DC", "Montreal", "Toronto", "Halifax", "St. John's NL",
+    "Chicago", "Atlanta", "Miami", "Key West", "New Orleans", "Minneapolis", "Dallas",
+    "Denver", "Winnipeg", "Calgary", "Salt Lake City", "Phoenix", "Los Angeles",
+    "San Francisco", "Seattle", "Whitehorse", "Anchorage", "Fairbanks",
+    "Prudhoe Bay", "Yellowknife",
 }
 
 
@@ -69,16 +113,16 @@ def inv_merc_y(y: np.ndarray) -> np.ndarray:
     return np.degrees(2 * np.arctan(np.exp(y)) - math.pi / 2)
 
 
-def grid(bbox: tuple[float, float, float, float]) -> tuple[np.ndarray, np.ndarray]:
+def grid(bbox, step) -> tuple[np.ndarray, np.ndarray]:
     """Lon/lat grid, uniform in Web Mercator (rows north -> south)."""
     west, south, east, north = bbox
-    lons = np.arange(west, east + 1e-9, STEP_DEG)
-    y_step = math.radians(STEP_DEG)  # Mercator y and lon share units (radians)
+    lons = np.arange(west, east + 1e-9, step)
+    y_step = math.radians(step)  # Mercator y and lon share units (radians)
     ys = np.arange(merc_y(north), merc_y(south) - 1e-12, -y_step)
     return lons, inv_merc_y(ys)
 
 
-def table(url: str, origin: tuple[float, float], pts: list[tuple[float, float]]):
+def table(url: str, origin, pts):
     coords = ";".join(f"{x:.5f},{y:.5f}" for x, y in [origin, *pts])
     req = f"{url}/table/v1/driving/{coords}?sources=0&annotations=duration"
     for attempt in range(3):
@@ -106,47 +150,124 @@ def drive_hours(url, origin, lons, lats) -> np.ndarray:
         for i, (d, s) in enumerate(pool.map(lambda b: table(url, origin, b), batches)):
             durs += d
             snaps += s
-            if i % 50 == 0:
+            if i % 500 == 0:
                 print(f"  {i}/{len(batches)}", flush=True)
     durs, snaps = np.array(durs), np.array(snaps)
     hours = (durs + snaps / LOCAL_SPEED_MS) / 3600
     hours[snaps > MAX_SNAP_M] = math.nan
-    return hours.reshape(lat_g.shape)
+    return hours.reshape(lat_g.shape).astype(np.float32)
 
 
-def band_png(hours: np.ndarray) -> tuple[str, list[str]]:
-    """Smooth, band into whole hours, return (base64 PNG, band colors)."""
-    filled = np.where(np.isnan(hours), 99.0, hours)
-    smooth = zoom(filled, UPSAMPLE, order=1)
-    valid = zoom(np.isnan(hours).astype(float), UPSAMPLE, order=1) < 0.5
-    band = np.ceil(smooth).astype(int)          # 0-1 h -> band 1, etc.
-    cmap = colormaps["viridis"].resampled(HOURS)
-    colors = [cmap(i) for i in range(HOURS)]
-    rgba = np.zeros((*band.shape, 4))
-    for b in range(1, HOURS + 1):
-        rgba[(band == b) & valid] = colors[b - 1]
-    rgba[..., 3] = np.where(rgba[..., 3] > 0, 0.62, 0)
+def land_mask(grid_npz: Path, region: str, step: float) -> np.ndarray | None:
+    """Land-minus-lakes mask for the grid (Natural Earth), built on first use."""
+    mask_npz = CACHE / f"landmask_{region}_{step}.npz"
+    ne = HERE.parent.parent / "data" / "naturalearth"
+    if not mask_npz.exists():
+        if not (ne / "ne_10m_land").exists():
+            print("no Natural Earth data in data/naturalearth; skipping land fill")
+            return None
+        subprocess.run([
+            "docker", "run", "--rm", "-v", f"{ne}:/ne:ro", "-v", f"{HERE}:/iso",
+            "my-osrm-tools", "python", "/iso/landmask.py",
+            f"/iso/cache/{grid_npz.name}", f"/iso/cache/{mask_npz.name}",
+            "/ne/ne_10m_land/ne_10m_land.shp", "/ne/ne_10m_lakes/ne_10m_lakes.shp",
+        ], check=True)
+    return np.load(mask_npz)["mask"]
+
+
+def fill_land(hours: np.ndarray, land: np.ndarray, lats: np.ndarray, step: float) -> np.ndarray:
+    """Give every land cell the time of its nearest reachable cell + the gap.
+
+    Mercator grid cells are physically square, side = step deg at cos(lat),
+    so a plain cell-count distance transform is exact per row.
+    """
+    reachable = ~np.isnan(hours)
+    dist_cells, (iy, ix) = distance_transform_edt(~reachable, return_indices=True)
+    cell_km = 111.32 * step * np.cos(np.radians(lats))[:, None]
+    gap_km = dist_cells * cell_km
+    filled = hours[iy, ix] + gap_km / (LOCAL_SPEED_MS * 3.6)
+    return np.where(land & (gap_km <= FILL_KM), filled, np.nan).astype(np.float32)
+
+
+def palette_for(n: int) -> np.ndarray:
+    """RGBA per band (index 0 = transparent).
+
+    Short trips: one sequential ramp. Long trips: every DAY_HOURS-hour
+    driving day gets one solid hue, and its hours alternate slightly
+    lighter/darker so each hour is its own visible stripe without blurring
+    the day color into the next day's.
+    """
+    pal = np.zeros((n + 1, 4), dtype=np.uint8)
+    if n <= 12:
+        cmap = colormaps["viridis"].resampled(n)
+        rgb = [cmap(b)[:3] for b in range(n)]
+    else:
+        days = math.ceil(n / DAY_HOURS)
+        hue = colormaps["turbo"]
+        rgb = []
+        for b in range(n):
+            day, hour = divmod(b, DAY_HOURS)
+            base = np.array(hue(0.05 + 0.9 * day / max(days - 1, 1))[:3])
+            lift = 0.18 if hour % 2 else 0.0             # toward white
+            rgb.append(base + (1 - base) * lift)
+    for b, c in enumerate(rgb, start=1):
+        pal[b] = (*(int(v * 255) for v in c), 200)
+    return pal
+
+
+def band_png(hours: np.ndarray, n: int, upsample: int) -> tuple[str, list[str]]:
+    """Band into whole hours 1..n with crisp edges; return (base64 PNG, colors)."""
+    filled = np.where(np.isnan(hours), 999.0, hours).astype(np.float32)
+    smooth = zoom(filled, upsample, order=1)
+    valid = zoom(np.isnan(hours).astype(np.float32), upsample, order=1) < 0.5
+    band = np.ceil(smooth).astype(np.int32)        # 0-1 h -> band 1, etc.
+    band[(band < 1) | (band > n) | ~valid] = 0
+    palette = palette_for(n)
+    rgba = palette[band]
+
+    # Outline every region: thin darker line between hours, a solid dark
+    # line between driving days (long trips only).
+    edge = np.zeros(band.shape, dtype=bool)
+    day_edge = np.zeros(band.shape, dtype=bool)
+    day = np.where(band > 0, (band - 1) // DAY_HOURS, -1)
+    for a, b, da, db in (
+        (band[:, 1:], band[:, :-1], day[:, 1:], day[:, :-1]),
+        (band[1:, :], band[:-1, :], day[1:, :], day[:-1, :]),
+    ):
+        diff = (a != b) & (a > 0) & (b > 0)
+        ddiff = (da != db) & (a > 0) & (b > 0)
+        if a.shape[0] == band.shape[0]:            # horizontal neighbors
+            edge[:, 1:] |= diff
+            day_edge[:, 1:] |= ddiff
+        else:                                      # vertical neighbors
+            edge[1:, :] |= diff
+            day_edge[1:, :] |= ddiff
+    rgba[edge, :3] = (rgba[edge, :3] * 0.72).astype(np.uint8)
+    if n > 12:
+        # Day lines 3 px wide so they survive zoomed-out viewing.
+        thick = binary_dilation(day_edge, iterations=1) & (band > 0)
+        rgba[thick] = (30, 30, 38, 240)
     buf = io.BytesIO()
     imsave(buf, rgba, format="png")
-    hexes = ["#{:02x}{:02x}{:02x}".format(*(int(c * 255) for c in col[:3])) for col in colors]
+    hexes = ["#{:02x}{:02x}{:02x}".format(*palette[b][:3]) for b in range(1, n + 1)]
     return base64.b64encode(buf.getvalue()).decode(), hexes
 
 
-def band_areas(hours: np.ndarray, lats: np.ndarray) -> list[float]:
+def band_areas(hours: np.ndarray, lats: np.ndarray, step: float, n: int) -> list[float]:
     """Cumulative km^2 reachable within each hour (spherical cell areas)."""
     r = 6371.0
-    dlon = math.radians(STEP_DEG)
-    # Row height in latitude varies (Mercator grid); use neighbor spacing.
-    dlat = np.abs(np.gradient(np.radians(lats)))
-    cell = (r * r * dlon * dlat * np.cos(np.radians(lats)))[:, None] * np.ones_like(hours)
-    return [float(np.nansum(np.where(hours <= h, cell, 0))) for h in range(1, HOURS + 1)]
+    dlon = math.radians(step)
+    dlat = np.abs(np.gradient(np.radians(lats)))   # Mercator rows vary in lat
+    cell = (r * r * dlon * dlat * np.cos(np.radians(lats)))[:, None]
+    return [float(np.nansum(np.where(hours <= h, cell, 0))) for h in range(1, n + 1)]
 
 
-def city_times(url, origin) -> list[dict]:
-    names = list(CITIES)
+def city_times(url, origin, bbox) -> list[dict]:
+    west, south, east, north = bbox
+    names = [n for n, (x, y) in CITIES.items() if west <= x <= east and south <= y <= north]
     durs, snaps = table(url, origin, [CITIES[n] for n in names])
     return [
-        {"name": n, "lon": CITIES[n][0], "lat": CITIES[n][1],
+        {"name": n, "lon": CITIES[n][0], "lat": CITIES[n][1], "major": n in MAJOR,
          "hours": None if math.isnan(d) else round((d + s / LOCAL_SPEED_MS) / 3600, 2)}
         for n, d, s in zip(names, durs, snaps)
     ]
@@ -157,14 +278,15 @@ def main() -> None:
     ap.add_argument("--url", default="http://127.0.0.1:5002")
     ap.add_argument("--origin", default="-71.0589,42.3601")
     ap.add_argument("--name", default="Boston")
-    ap.add_argument("--bbox", default="-82,36.5,-59,49.5", help="west,south,east,north")
+    ap.add_argument("--region", choices=REGIONS, default="regional")
     args = ap.parse_args()
     origin = tuple(float(v) for v in args.origin.split(","))
-    bbox = tuple(float(v) for v in args.bbox.split(","))
+    bbox, step, max_hours, upsample = REGIONS[args.region]
+    slug = f"{args.name.lower().replace(' ', '_')}_{args.region}"
 
-    lons, lats = grid(bbox)
+    lons, lats = grid(bbox, step)
     CACHE.mkdir(exist_ok=True)
-    key = CACHE / f"{args.name.lower().replace(' ', '_')}_{STEP_DEG}.npz"
+    key = CACHE / f"{slug}_{step}.npz"
     if key.exists():
         hours = np.load(key)["hours"]
         print(f"cached grid: {key.name}")
@@ -174,11 +296,15 @@ def main() -> None:
         np.savez_compressed(key, hours=hours, lons=lons, lats=lats)
         print(f"grid done in {time.time() - t0:.0f}s")
 
-    png, colors = band_png(hours)
-    areas = band_areas(hours, lats)
-    cities = city_times(args.url, origin)
-    # Image bounds: cell centers +/- half a cell, in lat/lon for Leaflet.
-    half = STEP_DEG / 2
+    land = land_mask(key, args.region, step)
+    if land is not None:
+        hours = fill_land(hours, land, lats, step)
+
+    n = max_hours or int(math.ceil(np.nanmax(hours)))
+    png, colors = band_png(hours, n, upsample)
+    areas = band_areas(hours, lats, step, n)
+    cities = city_times(args.url, origin, bbox)
+    half = step / 2
     bounds = [[float(lats[-1]) - half, float(lons[0]) - half],
               [float(lats[0]) + half, float(lons[-1]) + half]]
 
@@ -186,14 +312,14 @@ def main() -> None:
     payload = {
         "name": args.name, "origin": origin, "png": png, "bounds": bounds,
         "colors": colors, "areas": areas, "cities": cities, "url": args.url,
-        "hours": HOURS,
+        "hours": n, "dayHours": DAY_HOURS,
     }
     OUT.mkdir(exist_ok=True)
-    dest = OUT / f"isochrone_{args.name.lower().replace(' ', '_')}.html"
+    dest = OUT / f"isochrone_{slug}.html"
     dest.write_text(html.replace("/*__DATA__*/null", json.dumps(payload)), encoding="utf-8")
-    print(f"wrote {dest} ({dest.stat().st_size / 1e6:.1f} MB)")
-    for c in sorted(cities, key=lambda c: c["hours"] or 99):
-        print(f"  {c['hours'] if c['hours'] is not None else '  -':>5} h  {c['name']}")
+    print(f"wrote {dest} ({dest.stat().st_size / 1e6:.1f} MB), {n} hour bands")
+    for c in sorted(cities, key=lambda c: c["hours"] or 999):
+        print(f"  {c['hours'] if c['hours'] is not None else '  -':>6} h  {c['name']}")
 
 
 if __name__ == "__main__":
