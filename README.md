@@ -18,7 +18,7 @@ Grand Isle VT → Plattsburgh NY over the Lake Champlain ferry:
 
 | Engine | Compose service | Port | Size | Report card |
 |---|---|---|---|---|
-| **US + Canada major roads + ferries** | `na-ferry` (default) | 5002 | ~6 GB | **see below** |
+| **US + Canada major roads + ferries** | `na-ferry` (default) | 5002 | ~6 GB | **8/8** (incl. drive-time bands) |
 | US + Canada major roads | `na-major` (`--profile major`) | 5001 | ~6 GB | 4/8 |
 | US major roads | `us-major` (`--profile major`) | 5000 | ~5 GB | 2/6 |
 | Full US, every road | `us-full` (`--profile full`) | 5003 | ~75 GB | needs 64+ GB RAM: cloud VM only |
