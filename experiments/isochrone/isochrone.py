@@ -53,8 +53,8 @@ FILL_KM = 75               # land farther than this from any road stays blank
 REGIONS = {
     "regional": ((-82, 36.5, -59, 49.5), 0.04, 8, 4),
     "national": ((-127, 24.3, -52, 55), 0.05, 0, 2),
-    # + Alaska and the Yukon (only reachable through Canada)
-    "continental": ((-168, 24.3, -52, 71.5), 0.05, 0, 2),
+    # + Alaska/Yukon (only reachable through Canada) and Mexico to Guatemala
+    "continental": ((-168, 14.4, -52, 71.5), 0.05, 0, 2),
 }
 
 # Labeled destinations; only those inside the map's bounds are drawn.
@@ -92,6 +92,11 @@ CITIES = {
     "Fairbanks": (-147.7164, 64.8378), "Prudhoe Bay": (-148.3360, 70.2550),
     "Homer AK": (-151.5483, 59.6425), "Haines AK": (-135.4450, 59.2358),
     "Yellowknife": (-114.3718, 62.4540),
+    # Mexico
+    "Tijuana": (-117.0382, 32.5149), "Monterrey": (-100.3161, 25.6866),
+    "Mexico City": (-99.1332, 19.4326), "Guadalajara": (-103.3496, 20.6597),
+    "Cancún": (-86.8515, 21.1619), "Oaxaca": (-96.7266, 17.0732),
+    "Cabo San Lucas": (-109.9167, 22.8905), "Tapachula": (-92.2617, 14.9031),
 }
 
 
@@ -101,7 +106,8 @@ MAJOR = {
     "Chicago", "Atlanta", "Miami", "Key West", "New Orleans", "Minneapolis", "Dallas",
     "Denver", "Winnipeg", "Calgary", "Salt Lake City", "Phoenix", "Los Angeles",
     "San Francisco", "Seattle", "Whitehorse", "Anchorage", "Fairbanks",
-    "Prudhoe Bay", "Yellowknife",
+    "Prudhoe Bay", "Yellowknife", "Mexico City", "Monterrey", "Cancún",
+    "Cabo San Lucas",
 }
 
 

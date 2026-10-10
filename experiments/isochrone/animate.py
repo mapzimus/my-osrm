@@ -39,8 +39,9 @@ MUTED = (150, 158, 172)
 # Cities that get a label in the video (the full list is too dense at 1080 px).
 VIDEO_CITIES = [
     "New York", "Washington DC", "Montreal", "St. John's NL", "Chicago",
-    "Atlanta", "Miami", "Key West", "Dallas", "Winnipeg", "Denver", "Calgary",
+    "Atlanta", "Miami", "Dallas", "Winnipeg", "Denver", "Calgary",
     "Seattle", "San Francisco", "Los Angeles", "Whitehorse", "Anchorage", "Prudhoe Bay",
+    "Monterrey", "Mexico City", "Cancún", "Cabo San Lucas",
 ]
 LEFT_LABELS = {"Seattle", "San Francisco", "Los Angeles", "Anchorage", "Key West",
                "Chicago", "St. John's NL"}
@@ -206,7 +207,7 @@ def main() -> None:
         d.text((40, title_y), f"How far can you drive from {args.name}?", font=f_title, fill=INK)
         d.text((42, title_y + 64),
                f"Drive time from {'Boston City Hall' if args.name == 'Boston' else args.name}"
-               " to anywhere with a road in the US and Canada",
+               " to every road in the US, Canada and Mexico",
                font=f_sub, fill=MUTED)
 
         # Origin: pulsing dot.

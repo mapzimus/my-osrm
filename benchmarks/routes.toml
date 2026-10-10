@@ -79,8 +79,9 @@ kind = "ferry"
 needs = "na"
 from = [-110.3128, 24.1426]
 to = [-106.4111, 23.2494]
-max_miles = 400              # ferry ~280 mi total; around via Mexicali ~1,900 mi
-note = "Baja Ferries Pichilingue <-> Mazatlan, overnight"
+max_miles = 500              # any ferry route; around via Mexicali ~1,900 mi
+note = """Two valid answers: the direct Mazatlan ferry (~12-16 h crossing) or the
+faster Topolobampo ferry (7 h) + 250 mi drive, which is what OSRM picks (408 mi, 12.4 h)."""
 
 [[case]]
 name = "DC -> Boston (control)"
