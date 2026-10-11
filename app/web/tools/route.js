@@ -1,5 +1,5 @@
 // A -> B (-> C ...) route: click the map to add stops, drag to move, see line + turn list.
-import { h, btn, row, help, stat, fmtH, fmtMi, toast, status } from "../panel.js";
+import { fill, h, btn, row, help, stat, fmtH, fmtMi, toast, status } from "../panel.js";
 import { pointList } from "../points.js";
 
 export const id = "route";
@@ -45,7 +45,7 @@ export async function init(ctx) {
       features: [{ type: "Feature", properties: { name: `Route ${names[0]} → ${names.at(-1)}`, engine: r.engine, miles: r.miles, hours: r.hours, waypoints: names }, geometry: r.geometry }],
     }, { color: "#d1495b", width: 5 });
     const ferry = r.used_ferry ? h("div", {}, h("span", { class: "pass" }, "⛴ uses a ferry")) : null;
-    summary.replaceChildren(
+    fill(summary,
       stat([[fmtH(r.hours), "drive time"], [fmtMi(r.miles), "distance"], [`${Math.round(r.km)} km`, ""]]),
       ferry,
       r.legs.length > 1 ? h("div", { class: "help" }, r.legs.map((l, i) => `${names[i]} → ${names[i + 1]}: ${fmtH(l.hours)}, ${fmtMi(l.miles)}`).join(" · ")) : null,

@@ -1,5 +1,5 @@
 // Click anywhere: what road did the engine snap to, and how fast does it think that road is?
-import { h, btn, row, help, status, fmtLL } from "../panel.js";
+import { fill, h, btn, row, help, status, fmtLL } from "../panel.js";
 
 export const id = "inspector";
 export const title = "Inspect";
@@ -40,7 +40,7 @@ export async function init(ctx) {
     ] }, { color: "#555", width: 2, fill: false });
     const w = r.waypoints[0];
     const p = r.probe;
-    out.replaceChildren(
+    fill(out,
       h("h3", {}, "nearest road"),
       h("div", { class: "mono" }, `${w.name || "(unnamed)"}`),
       h("div", { class: "help" }, `snapped ${Math.round(w.snap_m)} m to ${fmtLL(w.location)}`),

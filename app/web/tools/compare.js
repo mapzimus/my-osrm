@@ -1,5 +1,5 @@
 // Same trip on every engine that's up, overlaid.
-import { h, btn, row, help, table, status, fmtH, fmtMi } from "../panel.js";
+import { fill, h, btn, row, help, table, status, fmtH, fmtMi } from "../panel.js";
 import { pointList } from "../points.js";
 
 export const id = "compare";
@@ -33,7 +33,7 @@ export async function init(ctx) {
         { color: e.color, width: 6 - i * 1.2, opacity: 0.85 });
     });
     const rows = r.results.map((e) => ({ ...e, ferry: e.used_ferry ? "⛴" : "" }));
-    out.replaceChildren(
+    fill(out,
       table([
         { key: "engine", label: "engine", fmt: (v, e) => h("span", {}, h("span", { class: "sw", style: `background:${e.color}` }), v) },
         { key: "hours", label: "time", num: true, fmt: (v, e) => e.status === "ok" ? fmtH(v) : e.status },

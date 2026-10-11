@@ -1,5 +1,5 @@
 // Report card on the map: every benchmark trip drawn green (pass) or red (fail).
-import { h, btn, row, help, progress, table, status, stat, fmtH, fmtMi } from "../panel.js";
+import { fill, h, btn, row, help, progress, table, status, stat, fmtH, fmtMi } from "../panel.js";
 
 export const id = "benchmarks";
 export const title = "Report card";
@@ -55,7 +55,7 @@ export async function init(ctx) {
 
   function render(res) {
     const rows = res.rows;
-    out.replaceChildren(
+    fill(out,
       res.scored != null ? stat([[`${res.passed}/${res.scored}`, "score"], [res.engine, "engine"]]) : null,
       table([
         { key: "result", label: "", fmt: (v) => h("span", { class: (v || "").toLowerCase() }, v === "PASS" ? "✓" : v === "FAIL" ? "✗" : v === "SKIP" ? "–" : v) },

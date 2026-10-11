@@ -14,6 +14,11 @@ export function h(tag, attrs, ...children) {
   return el;
 }
 
+/** replaceChildren that drops null/false (DOM would render them as the text "null"). */
+export function fill(el, ...children) {
+  el.replaceChildren(...children.flat().filter((c) => c != null && c !== false));
+}
+
 export const btn = (label, onClick, cls = "") => h("button", { class: `btn ${cls}`, onClick }, label);
 export const row = (...kids) => h("div", { class: "row" }, ...kids);
 export const help = (text) => h("p", { class: "help" }, text);
