@@ -7,6 +7,9 @@
 # morning summary (step results, report card, airport snaps, key times).
 
 $ErrorActionPreference = 'Continue'
+# 4 extract threads, not 6: peak memory scales with threads, and the 24 GB
+# WSL cap froze the machine twice. Build is ~15% slower, and finishes.
+$env:OSRM_THREADS = '4'
 
 # Keep Windows from idle-sleeping while this script runs (released when the
 # process exits; no power settings are changed). ES_CONTINUOUS|ES_SYSTEM_REQUIRED.
