@@ -400,10 +400,15 @@ def compute_hours(url: str, name: str, origin, region, progress=None, flights_on
     CACHE.mkdir(exist_ok=True)
     key = (CACHE / f"{slug}_{step}.npz").resolve()
     assert key.parent == CACHE.resolve()
+    hours = None
     if key.exists():
         hours = np.load(key)["hours"]
-        print(f"cached grid: {key.name}")
-    else:
+        if hours.shape != (len(lats), len(lons)):     # cached under an older bbox
+            print(f"stale cache {key.name} ({hours.shape}), recomputing")
+            hours = None
+        else:
+            print(f"cached grid: {key.name}")
+    if hours is None:
         t0 = time.time()
         hours = drive_hours(url, origin, lons, lats, progress=progress, skip=skip)
         np.savez_compressed(key, hours=hours, lons=lons, lats=lats)

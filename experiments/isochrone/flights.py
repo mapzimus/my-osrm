@@ -106,7 +106,9 @@ CARIBBEAN = {
     "cuba": ((-85.2, 19.6, -73.9, 23.4), ["HAV", "HOG"]),
     "jamaica": ((-78.5, 17.6, -76.1, 18.7), ["MBJ", "KIN"]),
     "hispaniola": ((-74.6, 17.4, -68.2, 20.2), ["SDQ", "PUJ", "STI", "PAP"]),
-    "bahamas": ((-80.6, 20.8, -72.6, 27.4), ["NAS", "FPO", "MHH", "ELH", "GGT"]),
+    # West edge -79.6: Bimini is at -79.3; -80.6 covered the Florida coast,
+    # which would have taken flight hours if any Florida-Bahamas ferry survived.
+    "bahamas": ((-79.6, 20.8, -72.6, 27.4), ["NAS", "FPO", "MHH", "ELH", "GGT"]),
     "cayman": ((-81.5, 19.2, -79.6, 19.8), ["GCM"]),
     "turks_caicos": ((-72.6, 21.1, -70.9, 22.0), ["PLS"]),
     "virgin_islands": ((-65.2, 17.6, -64.2, 18.8), ["STT", "STX", "EIS"]),
@@ -134,8 +136,10 @@ SERVES = {"HNL": HAWAII, "OGG": HAWAII, "KOA": HAWAII, "ITO": HAWAII,
           "LIH": HAWAII, "SJU": PUERTO_RICO, "BDA": BERMUDA}
 SERVES.update({code: box for box, codes in CARIBBEAN.values() for code in codes})
 SERVES.update({code: town(code) for code in
-               ("GOH", "SFJ", "JAV", "JHS", "OME", "BET", "BRW", "OTZ",
-                "YFB", "YVP", "YDP", "YRT", "YCB", "ADZ", "RNI")})
+               ("GOH", "SFJ", "JAV", "JHS", "BET", "BRW", "OTZ",
+                "YFB", "YVP", "YDP", "YRT", "YCB", "ADZ")})
+SERVES["OME"] = town("OME", 1.6, 0.9)      # Nome's road system reaches Teller and Council
+SERVES["RNI"] = town("RNI", 0.6)           # the default box reached Bluefields on the mainland
 SERVES.update({code: NOWHERE for code in ("BOS", "EWR", "MIA", "SEA", "ANC", "YUL", "YYR",
                                           "YWG", "YEG", "MGA")})
 
@@ -191,8 +195,12 @@ def plan(drive_hours: dict[str, float]) -> list[Leg]:
     for src, dst in ROUTES:
         if src in drive_hours:
             depart = drive_hours[src] + AIRPORT_BEFORE
-        else:
+            if math.isnan(depart):
+                continue                     # that airport isn't drivable from here
+        elif src in legs:
             depart = legs[src].arrive + CONNECTION
+        else:
+            continue                         # inbound leg was skipped
         miles = gc_miles(src, dst)
         arrive = depart + miles / CRUISE_MPH + TAXI_CLIMB
         legs[dst] = Leg(src, dst, depart, arrive, arrive + AIRPORT_AFTER, miles)

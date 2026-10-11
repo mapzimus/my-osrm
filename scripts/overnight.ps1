@@ -37,8 +37,14 @@ function Step([string]$name, [scriptblock]$body) {
 
 "overnight run started $(Get-Date)" | Set-Content $Log
 
+# Every engine off before the build: a running one holds ~3.5 GB of the
+# 24 GB WSL cap, and na-ferry restart-loops if its data dir is rebuilt
+# underneath it. Raw OSRM output goes to the log (progress lines included);
+# only the console is filtered.
+docker compose --profile major --profile full stop 2>&1 | Tee-Object -FilePath $Log -Append | Out-Null
+
 $built = Step 'build engine' {
-    & $Py scripts\build_ferry_engine.py | Select-String -NotMatch '^\s*\d+%|^\.$|\[info\]'
+    & $Py scripts\build_ferry_engine.py
 }
 
 if ($built) {
@@ -90,21 +96,13 @@ print(f"{bad} airport(s) over 5 km")
     foreach ($fmt in 'feed', 'reel') {
         Step "video: $fmt" {
             Set-Location $Iso
-            & $Py animate.py --format $fmt | Select-String -NotMatch '^\s+frame '
+            & $Py animate.py --format $fmt
             Set-Location $Root
         } | Out-Null
     }
-
-    Step 'commit outputs' {
-        git add experiments/isochrone/out/*.html experiments/isochrone/out/*.mp4 `
-            experiments/isochrone/out/*.gif experiments/isochrone/out/*.png `
-            experiments/isochrone/out/report_card.txt
-        git commit -q -m "Overnight run: full North America engine, report card, maps and videos`n`nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-        git log --oneline -1
-    } | Out-Null
 }
 
-# Morning summary.
+# Morning summary (written before the commit so it is part of it).
 $md = @("# Overnight run - $(Get-Date -Format 'yyyy-MM-dd HH:mm')", '', '| Step | Result |', '|---|---|')
 $md += $results.GetEnumerator() | ForEach-Object { "| $($_.Key) | $($_.Value) |" }
 $rc = Join-Path $Out 'report_card.txt'
@@ -113,4 +111,14 @@ $snaps = Select-String -Path $Log -Pattern 'over 5 km' | ForEach-Object Line
 if ($snaps) { $md += '', '## Airports that did not snap', ''; $md += $snaps | ForEach-Object { "- $_" } }
 $md += '', "Full log: experiments/isochrone/out/overnight.log"
 $md | Set-Content $Summary
+
+# Commit the text results only. The mp4/gif/png/html outputs are large and
+# regenerated every run; they stay in the working tree for Max to review.
+if ($built) {
+    Step 'commit results' {
+        git add experiments/isochrone/out/report_card.txt experiments/isochrone/out/OVERNIGHT.md
+        git commit -q -m "Overnight run: report card and summary`n`nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+        git log --oneline -1
+    } | Out-Null
+}
 "overnight run finished $(Get-Date)" | Tee-Object -FilePath $Log -Append

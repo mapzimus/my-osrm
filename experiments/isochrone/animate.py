@@ -37,6 +37,7 @@ GREENLAND_XY = (0.37, 0.66, 0.62, 0.40)
 BIG_PLANES = {"SEA", "HNL", "MIA", "BDA"}
 TRAIL = (120, 128, 142)
 TRAIL_FADE = 1.5                                    # hours a trail lingers after landing
+MIN_FLIGHT_H = 2.5                                  # ~6 frames at the slow end of the ease
 # Video-only labels for places not in isochrone.CITIES (times read off the grid).
 EXTRA_CITIES = {"Havana": (-82.3666, 23.1136), "Nassau": (-77.3554, 25.0480),
                 "Port of Spain": (-61.5190, 10.6596), "Bermuda": (-64.7814, 32.2949),
@@ -63,7 +64,8 @@ VIDEO_CITIES = [
     "Panama City", "Honolulu", "Hilo", "San Juan",
 ]
 LEFT_LABELS = {"Seattle", "San Francisco", "Los Angeles", "Anchorage", "Key West",
-               "Chicago", "St. John's NL", "Miami", "Havana", "Cancún", "San Juan"}
+               "Chicago", "St. John's NL", "Miami", "Havana", "Cancún", "San Juan",
+               "Iqaluit"}                   # right-side text ran under the Greenland inset
 
 FORMATS = {
     # canvas, map box (x0, y0, x1, y1), title y. Reels keep everything inside
@@ -329,15 +331,19 @@ def main() -> None:
         # Flights: dashed trail behind the plane while airborne, fading out
         # TRAIL_FADE hours after landing (35+ permanent arcs would bury the map).
         for leg, at in paths:
-            if t < leg.depart or t > leg.arrive + TRAIL_FADE:
+            # Visual floor: the ease-in timeline gives a 40-minute island hop
+            # 2-3 frames, so the plane teleported. The plane and trail take
+            # at least MIN_FLIGHT_H of screen time; colors keep the real time.
+            arrive = max(leg.arrive, leg.depart + MIN_FLIGHT_H)
+            if t < leg.depart or t > arrive + TRAIL_FADE:
                 continue
-            f = min(1.0, (t - leg.depart) / (leg.arrive - leg.depart))
-            fade = 1.0 if t <= leg.arrive else 1 - (t - leg.arrive) / TRAIL_FADE
+            f = min(1.0, (t - leg.depart) / (arrive - leg.depart))
+            fade = 1.0 if t <= arrive else 1 - (t - arrive) / TRAIL_FADE
             col = tuple(int(WATER[k] + (TRAIL[k] - WATER[k]) * fade) for k in range(3))
             pts = [at(f * k / 40)[:2] for k in range(41)]
             for k in range(0, 40, 2):
                 d.line([pts[k], pts[k + 1]], fill=col, width=2)
-            if t <= leg.arrive:
+            if t <= arrive:
                 x, y, ang = at(f)
                 draw_plane(d, x, y, ang, 1.5 if leg.dst in BIG_PLANES else 0.9)
 
