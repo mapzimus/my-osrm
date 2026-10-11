@@ -47,6 +47,7 @@ The report card's control cases check drive times against real-world bands.
 
 | Path | What |
 |---|---|
+| `app/` | Offline browser interface: routes, isochrones, matrices, report card, engine comparison, inspector, exports. `python -m app.setup` once, then `python -m app` → http://127.0.0.1:8080. See [app/README.md](app/README.md) |
 | `benchmarks/` | Report card: known trips with known answers (ferries, border shortcuts, controls) |
 | `profiles/car.lua` | Calibrated car profile, mounted over `/opt/car.lua` in every build |
 | `scripts/build_ferry_engine.py` | Build the recommended engine (runs from Windows; only needs docker) |
