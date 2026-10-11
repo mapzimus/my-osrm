@@ -27,6 +27,7 @@ import base64
 import io
 import json
 import math
+import re
 import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -359,10 +360,13 @@ def compute_hours(url: str, name: str, origin, region, progress=None, flights_on
     region: a REGIONS key, or (bbox, step) for a custom area.
     """
     bbox, step, label = region_spec(region)
-    slug = f"{name.lower().replace(' ', '_')}_{label}"
+    # the name becomes a cache filename: letters/digits/_/- only, no path parts
+    safe = re.sub(r"[^a-z0-9_-]", "_", name.lower().replace(" ", "_")).strip("_") or "origin"
+    slug = f"{safe[:60]}_{label}"
     lons, lats = grid(bbox, step)
     CACHE.mkdir(exist_ok=True)
-    key = CACHE / f"{slug}_{step}.npz"
+    key = (CACHE / f"{slug}_{step}.npz").resolve()
+    assert key.parent == CACHE.resolve()
     if key.exists():
         hours = np.load(key)["hours"]
         print(f"cached grid: {key.name}")

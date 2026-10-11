@@ -24,7 +24,7 @@ PRESETS = {k: {"bbox": v[0], "step": v[1], "hours": v[2], "upsample": v[3]} for 
 
 class IsoIn(BaseModel):
     engine: str | None = None
-    name: str = "Origin"
+    name: str = Field(default="Origin", max_length=60, pattern=r"^[\w .,'()-]+$")
     origin: list[float] = Field(min_length=2, max_length=2)
     region: str | None = None                       # preset key, or null with bbox+step
     bbox: list[float] | None = None                 # west, south, east, north
