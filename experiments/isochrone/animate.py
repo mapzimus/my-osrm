@@ -31,6 +31,12 @@ ORIGIN = (-71.0589, 42.3601)
 # Where the Hawaii inset sits, in main-map projected units: the empty Pacific
 # west of Baja (Hawaii's true position would widen the whole map ~25%).
 INSET_XY = (-0.66, -0.20, -0.31, -0.52)            # left, top, right, bottom
+BIG_PLANES = {"HNL", "SJU"}
+TRAIL = (120, 128, 142)
+TRAIL_FADE = 1.5                                    # hours a trail lingers after landing
+# Video-only labels for places not in isochrone.CITIES (times read off the grid).
+EXTRA_CITIES = {"Havana": (-82.3666, 23.1136), "Santo Domingo": (-69.9312, 18.4861),
+                "Nassau": (-77.3554, 25.0480), "Port of Spain": (-61.5190, 10.6596)}
 
 FONTS = Path("C:/Windows/Fonts")
 FPS = 30
@@ -250,6 +256,10 @@ def main() -> None:
         hrs = c["hours"] if c["hours"] is not None else iso.sample(reach, lons, lats, c["lon"], c["lat"])
         if hrs is not None:
             labels.append((hrs, nm, *place(c["lon"], c["lat"])))
+    for nm, (lon, lat) in EXTRA_CITIES.items():
+        hrs = iso.sample(reach, lons, lats, lon, lat)
+        if hrs is not None:
+            labels.append((hrs, nm, *place(lon, lat)))
     ox, oy = (float(v) for v in to_px(*origin))
 
     # Flight paths on screen: bowed arcs between the two airports' positions.
@@ -285,16 +295,20 @@ def main() -> None:
                " Islands: fly from Logan, then drive.",
                font=f_sub, fill=MUTED)
 
-        # Flights: dashed route once departed, the plane while airborne.
+        # Flights: dashed trail behind the plane while airborne, fading out
+        # TRAIL_FADE hours after landing (35+ permanent arcs would bury the map).
         for leg, at in paths:
-            if t < leg.depart:
+            if t < leg.depart or t > leg.arrive + TRAIL_FADE:
                 continue
-            pts = [at(k / 40)[:2] for k in range(41)]
+            f = min(1.0, (t - leg.depart) / (leg.arrive - leg.depart))
+            fade = 1.0 if t <= leg.arrive else 1 - (t - leg.arrive) / TRAIL_FADE
+            col = tuple(int(WATER[k] + (TRAIL[k] - WATER[k]) * fade) for k in range(3))
+            pts = [at(f * k / 40)[:2] for k in range(41)]
             for k in range(0, 40, 2):
-                d.line([pts[k], pts[k + 1]], fill=(120, 128, 142), width=2)
+                d.line([pts[k], pts[k + 1]], fill=col, width=2)
             if t <= leg.arrive:
-                x, y, ang = at((t - leg.depart) / (leg.arrive - leg.depart))
-                draw_plane(d, x, y, ang, 1.5 if leg.src == "BOS" else 1.0)
+                x, y, ang = at(f)
+                draw_plane(d, x, y, ang, 1.5 if leg.dst in BIG_PLANES else 0.9)
 
         # Origin: pulsing dot.
         pulse = 7 + 4 * (0.5 + 0.5 * math.sin(i / FPS * 2 * math.pi * 1.2))
