@@ -4,8 +4,9 @@ Per country, from its raw Geofabrik extract in data/:
     1. major-roads filter   -> the country's *-major.osm.pbf
     2. ferry_connectors.py  -> data/build/<cc>/ferry-connectors.osm.pbf
     3. (US, Canada) unclassified roads north of NORTH_LAT
-Then merge everything and run extract -> partition -> customize with
-profiles/car.lua.
+Then merge, dedup (newest version of each object), mark national border
+crossings (border_crossings.py), and run extract -> partition -> customize
+with profiles/car.lua.
 
 Output: data/osrm-na-ferry/na-ferry.osrm*  (served on :5002 by docker compose)
 
@@ -39,6 +40,7 @@ COUNTRIES = {
     "us": ("us-latest.osm.pbf", "osrm-major/us-major.osm.pbf"),
     "ca": ("canada-latest.osm.pbf", "osrm-major-na/canada-major.osm.pbf"),
     "mx": ("mexico-latest.osm.pbf", "build/mx/mexico-major.osm.pbf"),
+    "cam": ("central-america-latest.osm.pbf", "build/cam/central-america-major.osm.pbf"),
 }
 MAJOR_FILTER = (
     "w/highway=motorway,trunk,primary,secondary,tertiary,"
@@ -96,10 +98,20 @@ def main() -> None:
             inputs.append(north_minor)
 
     OUT.mkdir(exist_ok=True)
+    out = "/data/osrm-na-ferry"
+    merged, dedup = OUT / "na-merged.osm.pbf", OUT / "na-dedup.osm.pbf"
     pbf = OUT / f"{NAME}.osm.pbf"
     osrm = OUT / f"{NAME}.osrm"
-    stage(pbf, "merge", TOOLS_IMAGE, "osmium", "merge", "--overwrite",
-          "-o", f"/data/osrm-na-ferry/{pbf.name}", *[f"/data/{p}" for p in inputs])
+    stage(merged, "merge", TOOLS_IMAGE, "osmium", "merge", "--overwrite",
+          "-o", f"{out}/{merged.name}", *[f"/data/{p}" for p in inputs])
+    # Extracts from different days carry different versions of the same
+    # border-area objects; merge keeps both (582 duplicate nodes in Oct 2026).
+    # time-filter with no time keeps the newest version of each.
+    stage(dedup, "dedup", TOOLS_IMAGE, "osmium", "time-filter", "--overwrite",
+          "-o", f"{out}/{dedup.name}", f"{out}/{merged.name}")
+    stage(pbf, "border crossings", TOOLS_IMAGE, "python", "/scripts/border_crossings.py",
+          f"{out}/{dedup.name}", f"{out}/{pbf.name}", f"{out}/borders",
+          *[f"/data/{raw}" for raw, _ in COUNTRIES.values()])
     stage(osrm.with_suffix(".osrm.fileIndex"), "extract", OSRM_IMAGE,
           "osrm-extract", "-p", "/opt/car.lua", "--threads", THREADS,
           f"/data/osrm-na-ferry/{pbf.name}")

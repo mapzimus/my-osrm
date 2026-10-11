@@ -48,13 +48,15 @@ MAX_SNAP_M = 5_000         # farther than this from a road = blank
 LOCAL_SPEED_MS = 40 / 3.6  # off-network leg at local-road speed (40 km/h)
 DAY_HOURS = 8              # one "driving day", for the long-trip legend
 FILL_KM = 75               # land farther than this from any road stays blank
+CAP_DAYS = 12              # long-trip ramp spans days 1-12 (Prudhoe Bay ~91 h)
 
 # west, south, east, north; grid step (deg); max hours (0 = auto); upsample
 REGIONS = {
     "regional": ((-82, 36.5, -59, 49.5), 0.04, 8, 4),
     "national": ((-127, 24.3, -52, 55), 0.05, 0, 2),
-    # + Alaska/Yukon (only reachable through Canada) and Mexico to Guatemala
-    "continental": ((-168, 14.4, -52, 71.5), 0.05, 0, 2),
+    # + Alaska/Yukon (only reachable through Canada), Mexico and Central
+    # America to the Darien Gap (the road ends in Panama)
+    "continental": ((-168, 7.0, -52, 71.5), 0.05, 0, 2),
 }
 
 # Labeled destinations; only those inside the map's bounds are drawn.
@@ -97,6 +99,10 @@ CITIES = {
     "Mexico City": (-99.1332, 19.4326), "Guadalajara": (-103.3496, 20.6597),
     "Cancún": (-86.8515, 21.1619), "Oaxaca": (-96.7266, 17.0732),
     "Cabo San Lucas": (-109.9167, 22.8905), "Tapachula": (-92.2617, 14.9031),
+    # Central America
+    "Guatemala City": (-90.5069, 14.6349), "San Salvador": (-89.2182, 13.6929),
+    "Managua": (-86.2514, 12.1150), "San José CR": (-84.0907, 9.9281),
+    "Panama City": (-79.5199, 8.9824),
 }
 
 
@@ -107,7 +113,7 @@ MAJOR = {
     "Denver", "Winnipeg", "Calgary", "Salt Lake City", "Phoenix", "Los Angeles",
     "San Francisco", "Seattle", "Whitehorse", "Anchorage", "Fairbanks",
     "Prudhoe Bay", "Yellowknife", "Mexico City", "Monterrey", "Cancún",
-    "Cabo San Lucas",
+    "Cabo San Lucas", "Guatemala City", "San José CR", "Panama City",
 }
 
 
@@ -198,23 +204,30 @@ def fill_land(hours: np.ndarray, land: np.ndarray, lats: np.ndarray, step: float
 def palette_for(n: int) -> np.ndarray:
     """RGBA per band (index 0 = transparent).
 
-    Short trips: one sequential ramp. Long trips: every DAY_HOURS-hour
-    driving day gets one solid hue, and its hours alternate slightly
-    lighter/darker so each hour is its own visible stripe without blurring
-    the day color into the next day's.
+    Short trips: viridis (inferno's bright end washes out on the light web
+    basemap). Long trips: inferno run backwards, one solid color per
+    DAY_HOURS-hour driving day: bright yellow near the origin fading through
+    orange and red to deep purple far away. Perceptually even and
+    colorblind-safe, unlike the turbo rainbow it replaced. The ramp stops at
+    CAP_DAYS; later days (a few Aleutian specks) share the last color so the
+    main map keeps the contrast. Hours inside a day alternate slightly
+    lighter/darker so each hour stays a visible stripe.
     """
     pal = np.zeros((n + 1, 4), dtype=np.uint8)
     if n <= 12:
         cmap = colormaps["viridis"].resampled(n)
         rgb = [cmap(b)[:3] for b in range(n)]
     else:
-        days = math.ceil(n / DAY_HOURS)
-        hue = colormaps["turbo"]
+        days = min(math.ceil(n / DAY_HOURS), CAP_DAYS)
+        ramp = colormaps["inferno"]
         rgb = []
         for b in range(n):
             day, hour = divmod(b, DAY_HOURS)
-            base = np.array(hue(0.05 + 0.9 * day / max(days - 1, 1))[:3])
-            lift = 0.18 if hour % 2 else 0.0             # toward white
+            day = min(day, days - 1)
+            # 0.95 -> 0.32: inferno below ~0.3 is near-black and vanishes on
+            # the dark video background (Alaska went invisible at 0.15).
+            base = np.array(ramp(0.95 - 0.63 * day / max(days - 1, 1))[:3])
+            lift = 0.14 if hour % 2 else 0.0             # toward white
             rgb.append(base + (1 - base) * lift)
     for b, c in enumerate(rgb, start=1):
         pal[b] = (*(int(v * 255) for v in c), 200)

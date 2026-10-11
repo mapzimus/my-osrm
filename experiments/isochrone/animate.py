@@ -41,7 +41,8 @@ VIDEO_CITIES = [
     "New York", "Washington DC", "Montreal", "St. John's NL", "Chicago",
     "Atlanta", "Miami", "Dallas", "Winnipeg", "Denver", "Calgary",
     "Seattle", "San Francisco", "Los Angeles", "Whitehorse", "Anchorage", "Prudhoe Bay",
-    "Monterrey", "Mexico City", "Cancún", "Cabo San Lucas",
+    "Monterrey", "Mexico City", "Cancún", "Cabo San Lucas", "Guatemala City",
+    "Panama City",
 ]
 LEFT_LABELS = {"Seattle", "San Francisco", "Los Angeles", "Anchorage", "Key West",
                "Chicago", "St. John's NL"}
@@ -212,8 +213,11 @@ def main() -> None:
 
         # Origin: pulsing dot.
         pulse = 7 + 4 * (0.5 + 0.5 * math.sin(i / FPS * 2 * math.pi * 1.2))
+        # Dark under-ring: the origin sits on inferno's brightest yellow.
+        d.ellipse((ox - pulse - 2, oy - pulse - 2, ox + pulse + 2, oy + pulse + 2),
+                  outline=tuple(int(v) for v in WATER), width=2)
         d.ellipse((ox - pulse, oy - pulse, ox + pulse, oy + pulse), outline=INK, width=2)
-        d.ellipse((ox - 4, oy - 4, ox + 4, oy + 4), fill=INK)
+        d.ellipse((ox - 5, oy - 5, ox + 5, oy + 5), fill=INK, outline=tuple(int(v) for v in WATER))
         d.text((ox + 14, oy - 14), args.name, font=f_label, fill=INK,
                stroke_width=3, stroke_fill=tuple(int(v) for v in WATER))
 

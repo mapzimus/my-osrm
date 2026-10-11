@@ -34,6 +34,13 @@ function setup()
     oneway_handling           = true,
     side_road_multiplier      = 0.8,
     turn_penalty              = 7.5,
+    -- my-osrm: OSM ferry durations are crossing time only. Charge arriving
+    -- early + loading once per boarding (process_turn), so a ferry only wins
+    -- when it really saves time.
+    ferry_boarding            = 1800,
+    -- my-osrm: customs/immigration, charged once per national border crossing
+    -- (nodes tagged my_osrm:border_crossing by scripts/border_crossings.py).
+    border_crossing           = 1200,
     -- my-osrm: stock is 0.8, which made interstates ~52 mph and DC->Boston
     -- 9.2 h (real-world ~7-7.5 h). 0.95 assumes drivers run near the limit;
     -- checked by the hour bands on the control cases in benchmarks/routes.toml.
@@ -244,8 +251,11 @@ function setup()
       wood = 40,
       sett = 40,
       grass_paver = 40,
-      gravel = 40,
-      unpaved = 40,
+      -- my-osrm: stock 40. This is a cap (min with the road-class speed), so
+      -- it only bites on maintained gravel highways; at 40 the Dempster took
+      -- 18.9 h vs the ~12-14 h people actually drive it.
+      gravel = 65,
+      unpaved = 65,
       ground = 40,
       dirt = 40,
       pebblestone = 40,
@@ -409,6 +419,12 @@ function process_node(profile, node, result, relations)
     end
   end
 
+  -- my-osrm: one customs stop per border crossing, either direction.
+  if node:get_value_by_key("my_osrm:border_crossing") == "yes" then
+    obstacle_map:add(node, Obstacle.new(obstacle_type.gate,
+                                        obstacle_direction.both, profile.border_crossing, 0))
+  end
+
   Obstacles.process_node(profile, node)
 end
 
@@ -562,6 +578,12 @@ function process_turn(profile, turn)
     if turn.is_u_turn then
       turn.duration = turn.duration + profile.properties.u_turn_penalty
     end
+  end
+
+  -- my-osrm: boarding a ferry (any mode -> ferry; ferry -> ferry joints of a
+  -- split crossing don't count again).
+  if turn.target_mode == mode.ferry and turn.source_mode ~= mode.ferry then
+    turn.duration = turn.duration + profile.ferry_boarding
   end
 
   -- for distance based routing we don't want to have penalties based on turn angle

@@ -102,3 +102,262 @@ to = [-111.8910, 40.7608]
 max_miles = 540              # ~520 mi via I-80
 hours = [7.0, 8.5]           # free-flow ~7.5-8 h
 note = "Should never change."
+
+# ---------------------------------------------------------------------------
+# Added 2026-10-10. Reference distances/times are approximate, from general
+# knowledge, not a cited source. A failure means: check the engine AND the
+# reference before changing anything.
+# ---------------------------------------------------------------------------
+
+# --- Ferries (each also pays the 30 min boarding charge) ---
+
+[[case]]
+name = "Woods Hole -> Vineyard Haven MA (Martha's Vineyard)"
+kind = "ferry"
+needs = "us"
+from = [-70.6717, 41.5235]
+to = [-70.6000, 41.4543]
+max_miles = 20               # ~7 mi crossing; island, no road alternative
+note = "Steamship Authority, 45-min crossing"
+
+[[case]]
+name = "Hyannis -> Nantucket MA"
+kind = "ferry"
+needs = "us"
+from = [-70.2795, 41.6520]
+to = [-70.0995, 41.2835]
+max_miles = 40               # ~26 mi crossing; island
+note = "Steamship Authority car ferry, ~2 h 15 min"
+
+[[case]]
+name = "Point Judith RI -> Block Island RI"
+kind = "ferry"
+needs = "us"
+from = [-71.5122, 41.3762]
+to = [-71.5577, 41.1720]
+max_miles = 25               # ~13 mi crossing; island
+note = "Block Island Ferry, ~55 min"
+
+[[case]]
+name = "New London CT -> Orient Point NY (Cross Sound Ferry)"
+kind = "ferry"
+needs = "us"
+from = [-72.0995, 41.3557]
+to = [-72.3060, 41.1597]
+max_miles = 40               # ~16 mi ferry; around via NYC ~190 mi
+note = "~80-min crossing"
+
+[[case]]
+name = "Hatteras -> Ocracoke NC"
+kind = "ferry"
+needs = "us"
+from = [-75.6889, 35.2190]
+to = [-75.9827, 35.1146]
+max_miles = 45               # ferry + NC-12 ~30 mi; island
+note = "NCDOT free ferry, ~1 h"
+
+[[case]]
+name = "Galveston -> Port Bolivar TX"
+kind = "ferry"
+needs = "us"
+from = [-94.7977, 29.3013]
+to = [-94.7660, 29.3655]
+max_miles = 20               # ~3 mi ferry; around via Winnie ~100 mi
+note = "TxDOT free ferry, ~20 min"
+
+[[case]]
+name = "Ludington MI -> Manitowoc WI (SS Badger)"
+kind = "ferry"
+needs = "us"
+from = [-86.4526, 43.9553]
+to = [-87.6568, 44.0886]
+max_miles = 120              # ~60 mi crossing; around via Chicago ~400 mi
+note = "Seasonal (May-Oct), ~4 h crossing vs ~6.5 h drive around"
+
+[[case]]
+name = "Haines AK -> Skagway AK (Alaska Marine Highway)"
+kind = "ferry"
+needs = "us"
+from = [-135.4450, 59.2358]
+to = [-135.3139, 59.4583]
+max_miles = 60               # ~15 mi ferry; around via Yukon ~360 mi
+note = "AMHS shuttle, ~1 h"
+
+[[case]]
+name = "Port Angeles WA -> Victoria BC (Coho)"
+kind = "ferry"
+needs = "na"
+from = [-123.4307, 48.1181]
+to = [-123.3656, 48.4284]
+max_miles = 40               # ~23 mi crossing + customs
+note = "Black Ball Ferry Line, ~90 min"
+
+[[case]]
+name = "Vancouver BC -> Victoria BC (BC Ferries)"
+kind = "ferry"
+needs = "na"
+from = [-123.1207, 49.2827]
+to = [-123.3656, 48.4284]
+max_miles = 100              # ~70 mi incl. Tsawwassen-Swartz Bay; island
+note = "~95-min crossing"
+
+[[case]]
+name = "North Sydney NS -> Port aux Basques NL (Marine Atlantic)"
+kind = "ferry"
+needs = "na"
+from = [-60.2470, 46.2058]
+to = [-59.1367, 47.5700]
+max_miles = 150              # ~110 mi crossing; Newfoundland has no road link
+note = "~7 h crossing"
+
+# --- Borders (each crossing pays the 20 min customs charge) ---
+
+[[case]]
+name = "Bellingham WA -> Point Roberts WA (US exclave, via Canada)"
+kind = "border"
+needs = "na"
+from = [-122.4787, 48.7519]
+to = [-123.0631, 48.9853]
+max_miles = 70               # ~45 mi through BC; no all-US road
+hours = [1.2, 2.4]           # ~1 h driving + 2 border crossings
+note = "Proves both crossings are charged: into Canada and back into the US"
+
+[[case]]
+name = "Warroad MN -> Angle Inlet MN (Northwest Angle, via Manitoba)"
+kind = "border"
+needs = "na"
+from = [-95.3144, 48.9050]
+to = [-95.0950, 49.3450]
+max_miles = 100              # ~65 mi through Manitoba
+note = "Northernmost point of the Lower 48; only road access is through Canada"
+
+[[case]]
+name = "Seattle -> Vancouver BC (I-5 / Hwy 99)"
+kind = "border"
+needs = "na"
+from = [-122.3321, 47.6062]
+to = [-123.1207, 49.2827]
+max_miles = 160              # ~140 mi
+hours = [2.3, 3.5]           # ~2.3 h driving + customs
+note = "Peace Arch crossing"
+
+# --- Far north, gravel ---
+
+[[case]]
+name = "Dawson City YT -> Inuvik NT (Dempster Highway)"
+kind = "control"
+needs = "na"
+from = [-139.4320, 64.0601]
+to = [-133.7230, 68.3607]
+max_miles = 520              # ~480 mi, gravel, two free river ferries
+hours = [10.0, 16.0]         # people drive it in ~12-14 h
+note = "Checks gravel speeds: car.lua caps surface=gravel at 40 km/h"
+
+[[case]]
+name = "Inuvik NT -> Tuktoyaktuk NT (Arctic Ocean)"
+kind = "control"
+needs = "na"
+from = [-133.7230, 68.3607]
+to = [-133.0300, 69.4430]
+max_miles = 120              # ~92 mi gravel (Inuvik-Tuktoyaktuk Highway, 2017)
+note = "Only all-season road to the Arctic Ocean in Canada"
+
+[[case]]
+name = "Fort McMurray AB -> Fort Chipewyan AB (winter road only)"
+kind = "unreachable"
+needs = "na"
+from = [-111.3790, 56.7265]
+to = [-111.1470, 58.7160]
+max_miles = 0
+note = "Ice road only (~Jan-Mar). Proves the summer model drops winter roads"
+
+[[case]]
+name = "Boston -> Honolulu (no road)"
+kind = "unreachable"
+needs = "us"
+from = [-71.0589, 42.3601]
+to = [-157.8583, 21.3069]
+max_miles = 0
+note = "No car ferry to Hawaii"
+
+# --- Mexico and Central America ---
+
+[[case]]
+name = "Mexico City -> Guadalajara"
+kind = "control"
+needs = "na"
+from = [-99.1332, 19.4326]
+to = [-103.3496, 20.6597]
+max_miles = 380              # ~340 mi via Hwy 15D
+hours = [5.0, 7.0]           # ~5.5-6 h
+note = "Main toll road"
+
+[[case]]
+name = "Mexico City -> Guatemala City"
+kind = "border"
+needs = "na"
+from = [-99.1332, 19.4326]
+to = [-90.5069, 14.6349]
+max_miles = 900              # ~780 mi
+note = "Crosses at Ciudad Hidalgo / Tecun Uman or La Mesilla"
+
+[[case]]
+name = "Guatemala City -> Panama City (Pan-American Highway)"
+kind = "border"
+needs = "na"
+from = [-90.5069, 14.6349]
+to = [-79.5199, 8.9824]
+max_miles = 1450             # ~1,250 mi through SV, HN, NI, CR
+note = "Five border crossings"
+
+# --- Controls with drive-time bands ---
+
+[[case]]
+name = "Chicago -> Minneapolis (control)"
+kind = "control"
+needs = "us"
+from = [-87.6298, 41.8781]
+to = [-93.2650, 44.9778]
+max_miles = 430              # ~410 mi via I-94
+hours = [5.6, 7.0]           # free-flow ~6-6.5 h
+note = "Interstate control"
+
+[[case]]
+name = "Los Angeles -> Las Vegas (control)"
+kind = "control"
+needs = "us"
+from = [-118.2437, 34.0522]
+to = [-115.1398, 36.1699]
+max_miles = 290              # ~270 mi via I-15
+hours = [3.4, 4.6]           # free-flow ~4 h
+note = "Interstate control"
+
+[[case]]
+name = "Houston -> Dallas (control)"
+kind = "control"
+needs = "us"
+from = [-95.3698, 29.7604]
+to = [-96.7970, 32.7767]
+max_miles = 260              # ~240 mi via I-45
+hours = [3.1, 4.2]           # free-flow ~3.5 h
+note = "Interstate control"
+
+[[case]]
+name = "Atlanta -> Nashville (control)"
+kind = "control"
+needs = "us"
+from = [-84.3880, 33.7490]
+to = [-86.7816, 36.1627]
+max_miles = 270              # ~250 mi via I-75/I-24
+hours = [3.3, 4.4]           # free-flow ~3.75 h
+note = "Interstate control"
+
+[[case]]
+name = "Toronto -> Montreal (control)"
+kind = "control"
+needs = "na"
+from = [-79.3832, 43.6532]
+to = [-73.5673, 45.5017]
+max_miles = 360              # ~335 mi via Hwy 401
+hours = [4.6, 5.9]           # free-flow ~5 h
+note = "Canadian control"

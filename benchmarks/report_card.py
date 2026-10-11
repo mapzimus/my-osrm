@@ -13,38 +13,59 @@ import argparse
 import json
 import sys
 import tomllib
+import urllib.error
 import urllib.request
 from pathlib import Path
 
 METERS_PER_MILE = 1609.344
 ROUTES_FILE = Path(__file__).with_name("routes.toml")
+UNREACHABLE_SNAP_M = 2_000
 
 
-def route(url: str, src: list[float], dst: list[float]) -> tuple[float, float, bool]:
-    """Return (miles, hours, used_ferry) for the fastest route."""
+class NoRoute(Exception):
+    """OSRM found no route at all (e.g. the destination is an unconnected island)."""
+
+
+def route(url: str, src: list[float], dst: list[float]) -> tuple[float, float, bool, float]:
+    """Return (miles, hours, used_ferry, destination snap in meters)."""
     coords = f"{src[0]},{src[1]};{dst[0]},{dst[1]}"
     req = f"{url}/route/v1/driving/{coords}?overview=false&steps=true"
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.load(resp)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.load(resp)
+    except urllib.error.HTTPError as exc:      # OSRM answers NoRoute with HTTP 400
+        data = json.load(exc)
+    if data.get("code") == "NoRoute":
+        raise NoRoute()
     if data.get("code") != "Ok":
         raise RuntimeError(data.get("message", data.get("code")))
     r = data["routes"][0]
     used_ferry = any(
         step.get("mode") == "ferry" for leg in r["legs"] for step in leg["steps"]
     )
-    return r["distance"] / METERS_PER_MILE, r["duration"] / 3600, used_ferry
+    snap_m = data["waypoints"][1]["distance"]
+    return r["distance"] / METERS_PER_MILE, r["duration"] / 3600, used_ferry, snap_m
 
 
-def grade(case: dict, miles: float, hours: float, used_ferry: bool, engine: str) -> str:
+def grade(case: dict, miles: float, hours: float, used_ferry: bool, engine: str,
+          snap_m: float = 0.0) -> str:
     """Return "PASS", "FAIL", or "SKIP" for one case.
 
     case["max_miles"] is the shortcut threshold; case["kind"] is
-    "ferry" | "border" | "control"; case["needs"] is "us" | "na".
+    "ferry" | "border" | "control" | "unreachable"; case["needs"] is "us" | "na".
     """
     # A US-only engine can't enter Canada by design; grading it on that
     # would mix "broken" with "out of scope". Still printed, just not scored.
     if case["needs"] == "na" and engine != "na":
         return "SKIP"
+    # Unreachable by car: a route that only gets there by snapping the
+    # destination to a road kilometers away doesn't count as reaching it.
+    if case["kind"] == "unreachable":
+        return "PASS" if snap_m > UNREACHABLE_SNAP_M else "FAIL"
+    # ...and the same test in reverse: a "route" that ends kilometers from the
+    # destination never got there (e.g. a country missing from the engine).
+    if snap_m > UNREACHABLE_SNAP_M:
+        return "FAIL"
     if miles > case["max_miles"]:
         return "FAIL"
     # Ferry cases need proof: a short distance alone could be a fluke.
@@ -70,17 +91,24 @@ def main() -> int:
     print(f"\nReport card: {args.url} (engine={args.engine})\n")
     for case in cases:
         try:
-            miles, hours, ferry = route(args.url, case["from"], case["to"])
+            miles, hours, ferry, snap_m = route(args.url, case["from"], case["to"])
+        except NoRoute:
+            result = "PASS" if case["kind"] == "unreachable" else "FAIL"
+            scored += 1
+            passed += result == "PASS"
+            print(f"  {result:4}  {'no route':>21}        {case['name']}")
+            continue
         except Exception as exc:  # noqa: BLE001 - report and keep going
             print(f"  ERROR {case['name']}: {exc}")
             scored += 1
             continue
-        result = grade(case, miles, hours, ferry, args.engine)
+        result = grade(case, miles, hours, ferry, args.engine, snap_m)
         if result != "SKIP":
             scored += 1
             passed += result == "PASS"
         tag = " ferry" if ferry else ""
-        print(f"  {result:4}  {miles:6.0f} mi {hours:5.1f} h{tag:6}  {case['name']}")
+        snap = f"  (snapped {snap_m / 1000:.0f} km)" if snap_m > UNREACHABLE_SNAP_M else ""
+        print(f"  {result:4}  {miles:6.0f} mi {hours:5.1f} h{tag:6}  {case['name']}{snap}")
     print(f"\nScore: {passed}/{scored}\n")
     return 0 if passed == scored else 1
 
