@@ -43,6 +43,8 @@ COUNTRIES = {
     "cam": ("central-america-latest.osm.pbf", "build/cam/central-america-major.osm.pbf"),
     # Not part of Geofabrik's US extract; island network (Vieques/Culebra car ferries).
     "pr": ("puerto-rico-latest.osm.pbf", "build/pr/puerto-rico-major.osm.pbf"),
+    # openstreetmap.fr extract (Geofabrik has none).
+    "bm": ("bermuda-latest.osm.pbf", "build/bm/bermuda-major.osm.pbf"),
 }
 MAJOR_FILTER = (
     "w/highway=motorway,trunk,primary,secondary,tertiary,"

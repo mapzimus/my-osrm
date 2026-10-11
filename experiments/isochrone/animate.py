@@ -31,12 +31,13 @@ ORIGIN = (-71.0589, 42.3601)
 # Where the Hawaii inset sits, in main-map projected units: the empty Pacific
 # west of Baja (Hawaii's true position would widen the whole map ~25%).
 INSET_XY = (-0.66, -0.20, -0.31, -0.52)            # left, top, right, bottom
-BIG_PLANES = {"HNL", "SJU"}
+BIG_PLANES = {"HNL", "MIA", "BDA"}
 TRAIL = (120, 128, 142)
 TRAIL_FADE = 1.5                                    # hours a trail lingers after landing
 # Video-only labels for places not in isochrone.CITIES (times read off the grid).
 EXTRA_CITIES = {"Havana": (-82.3666, 23.1136), "Santo Domingo": (-69.9312, 18.4861),
-                "Nassau": (-77.3554, 25.0480), "Port of Spain": (-61.5190, 10.6596)}
+                "Nassau": (-77.3554, 25.0480), "Port of Spain": (-61.5190, 10.6596),
+                "Bermuda": (-64.7814, 32.2949)}
 
 FONTS = Path("C:/Windows/Fonts")
 FPS = 30
@@ -263,6 +264,11 @@ def main() -> None:
     ox, oy = (float(v) for v in to_px(*origin))
 
     # Flight paths on screen: bowed arcs between the two airports' positions.
+    # Draw the full schedule, hub legs included (BOS -> MIA serves no island,
+    # so compute_hours doesn't return it).
+    if legs:
+        home_leg = next(l for l in legs if l.src == "BOS")
+        legs = flights.plan(home_leg.depart - flights.AIRPORT_BEFORE)
     paths = [(leg, arc(place(*flights.AIRPORTS[leg.src][1:]), place(*flights.AIRPORTS[leg.dst][1:]),
                        lift=0.22 if leg.src == "BOS" else 0.35)) for leg in legs]
 

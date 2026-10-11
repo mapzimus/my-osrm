@@ -101,7 +101,9 @@ def main(merged: str, out: str, work: str, *raws: str) -> None:
     for raw in raws:
         part = wd / f"boundaries-{Path(raw).name.split('-latest')[0]}.osm.pbf"
         if not part.exists():
-            run("osmium", "tags-filter", "-o", str(part), raw, "r/boundary=administrative")
+            # admin_level=2 only: r/boundary=administrative also pulled every
+            # county and township line, which took 21 min on the US extract.
+            run("osmium", "tags-filter", "-o", str(part), raw, "r/admin_level=2")
         parts.append(str(part))
     bounds = wd / "boundaries.osm.pbf"
     run("osmium", "merge", "--overwrite", "-o", str(bounds), *parts)

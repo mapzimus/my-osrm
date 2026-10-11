@@ -8,9 +8,9 @@ Timing model (all hours from leaving the origin):
 Connections (Honolulu -> neighbor islands) leave CONNECTION after landing.
 
 There are no inter-island car ferries in Hawaii (the Superferry stopped in
-2009), so the neighbor islands are reached by these short hops. Caribbean
-islands get a direct flight each; car ferries between them (Trinidad-Tobago,
-Bahamas, St Kitts-Nevis...) come from the routing engine itself.
+2009), so the neighbor islands are reached by these short hops. Every
+Caribbean island connects through Miami; car ferries between islands
+(Trinidad-Tobago, Bahamas, St Kitts-Nevis...) come from the routing engine.
 """
 
 from __future__ import annotations
@@ -32,6 +32,8 @@ AIRPORTS = {
     "ITO": ("Hilo", -155.0485, 19.7203),
     "LIH": ("Lihue, Kauai", -159.3390, 21.9760),
     "SJU": ("San Juan", -66.0018, 18.4394),
+    "MIA": ("Miami", -80.2906, 25.7959),
+    "BDA": ("Bermuda", -64.6787, 32.3640),
     # Caribbean (main airport per island; two or more on the big islands)
     "HAV": ("Havana", -82.4091, 22.9892),
     "HOG": ("Holguin", -76.3151, 20.7856),
@@ -72,6 +74,7 @@ AIRPORTS = {
 # Island road networks each arrival airport serves (west, south, east, north).
 HAWAII = (-160.6, 18.8, -154.7, 22.4)
 PUERTO_RICO = (-67.4, 17.8, -65.2, 18.6)
+BERMUDA = (-64.95, 32.2, -64.6, 32.45)
 CARIBBEAN = {
     "cuba": ((-85.2, 19.6, -73.9, 23.4), ["HAV", "HOG"]),
     "jamaica": ((-78.5, 17.6, -76.1, 18.7), ["MBJ", "KIN"]),
@@ -86,16 +89,21 @@ CARIBBEAN = {
     "trinidad_tobago": ((-62.0, 10.0, -60.4, 11.4), ["POS", "TAB"]),
     "abc_islands": ((-70.2, 11.9, -68.1, 12.8), ["AUA", "CUR", "BON"]),
 }
+# Hubs only connect: Miami is on the mainland road network, so it drives
+# nothing (an empty box never overlaps a map region).
+NOWHERE = (0.0, 0.0, 0.0, 0.0)
 SERVES = {"HNL": HAWAII, "OGG": HAWAII, "KOA": HAWAII, "ITO": HAWAII,
-          "LIH": HAWAII, "SJU": PUERTO_RICO}
+          "LIH": HAWAII, "SJU": PUERTO_RICO, "MIA": NOWHERE, "BDA": BERMUDA}
 SERVES.update({code: box for box, codes in CARIBBEAN.values() for code in codes})
 
 # (from, to); a "from" other than the home airport is a connection.
-# Caribbean islands are flown direct from home: the real trip to a small
-# island usually connects via MIA or SJU, so those times are optimistic.
-ROUTES = [("BOS", "HNL"), ("BOS", "SJU"),
+# Every Caribbean island, Puerto Rico included, connects through Miami,
+# the way most real trips from Boston to the small islands do. Bermuda is a
+# direct flight (it's due southeast; a Miami detour would make no sense).
+HUB = "MIA"
+ROUTES = [("BOS", "HNL"), ("BOS", "BDA"), ("BOS", HUB), (HUB, "SJU"),
           ("HNL", "OGG"), ("HNL", "KOA"), ("HNL", "ITO"), ("HNL", "LIH")]
-ROUTES += [("BOS", code) for _, codes in CARIBBEAN.values() for code in codes]
+ROUTES += [(HUB, code) for _, codes in CARIBBEAN.values() for code in codes]
 
 
 @dataclass

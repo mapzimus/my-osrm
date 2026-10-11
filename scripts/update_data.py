@@ -25,10 +25,18 @@ DATA = ROOT / "data"
 sys.path.insert(0, str(ROOT / "scripts"))
 from build_ferry_engine import COUNTRIES, OUT, TOOLS_IMAGE  # noqa: E402
 
-BASE = "https://download.geofabrik.de"
-# Geofabrik folder per country code (Central America is a top-level region).
-REGION = {"us": "north-america", "ca": "north-america", "mx": "north-america", "cam": "",
-          "pr": "north-america/us"}
+GEOFABRIK = "https://download.geofabrik.de"
+# Download folder per country code. Geofabrik for everything it publishes
+# (Central America is top-level, Puerto Rico sits under us/); Bermuda only
+# exists on the openstreetmap.fr mirror.
+SOURCE = {
+    "us": f"{GEOFABRIK}/north-america",
+    "ca": f"{GEOFABRIK}/north-america",
+    "mx": f"{GEOFABRIK}/north-america",
+    "cam": GEOFABRIK,
+    "pr": f"{GEOFABRIK}/north-america/us",
+    "bm": "https://download.openstreetmap.fr/extracts/north-america",
+}
 
 
 def remote_size(url: str) -> int:
@@ -45,7 +53,7 @@ def remote_size(url: str) -> int:
 
 def download(cc: str) -> None:
     raw = COUNTRIES[cc][0]
-    url = "/".join(p for p in (BASE, REGION[cc], raw) if p)
+    url = f"{SOURCE[cc]}/{raw}"
     dest, part = DATA / raw, DATA / f"{raw}.part"
     size = remote_size(url)
     print(f"[{cc}] {raw}: {size / 1e9:.2f} GB", flush=True)
