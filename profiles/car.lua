@@ -637,12 +637,15 @@ function process_turn(profile, turn)
     end
   end
 
-  -- my-osrm: boarding a ferry. Any mode -> ferry is a boarding. Ferry -> ferry
-  -- at a degree-2 node is a joint of one split crossing (no charge); at a
-  -- node with a road attached it's a change of boat at a shared dock
-  -- (Anacortes, Woods Hole), which is a new boarding.
-  if turn.target_mode == mode.ferry and
-     (turn.source_mode ~= mode.ferry or turn.number_of_roads > 2) then
+  -- my-osrm: boarding a ferry. Any mode -> ferry is a boarding; ferry -> ferry
+  -- is never charged. (An audit suggested charging ferry->ferry at nodes with
+  -- a road attached, for changes of boat at shared docks. That misfires on
+  -- the common case of a short untimed dock stub joining the main crossing
+  -- at the dock node: Cape May-Lewes was charged boarding 2-3 times, 136 min
+  -- for an 85 min crossing. Turns don't expose way names, so the two cases
+  -- can't be told apart; under-charging the rare change of boat is the
+  -- lesser error.)
+  if turn.target_mode == mode.ferry and turn.source_mode ~= mode.ferry then
     turn.duration = turn.duration + profile.ferry_boarding
   end
 

@@ -127,13 +127,21 @@ def asserts() -> bool:
     rels = int(next(l for l in info.splitlines() if "Number of relations" in l).split(":")[1])
     ok &= check("turn-restriction relations survive the filter", rels > 0, f"relations={rels}")
     borders = json.load(open(out / "borders" / "border-report.json", encoding="utf-8"))
-    canusa = [b for b in borders if "canusa" in b["name"].lower()]
-    ok &= check("street along the border not charged (Canusa St)", not canusa, f"tagged={len(canusa)}")
-    cm = subprocess.run(["docker", "run", "--rm", "-v", f"{MINI}:/mini:ro", TOOLS, "sh", "-c",
-                         "osmium tags-filter -o /tmp/c.osm.pbf /mini/osrm-na-ferry/na-ferry.osm.pbf "
-                         "w/name='Cape May-Lewes Ferry Road' 2>/dev/null; osmium cat -f opl /tmp/c.osm.pbf "
-                         "| grep -c 'access=destination' || true"], capture_output=True, text=True).stdout.strip()
-    ok &= check("Cape May-Lewes Ferry Road ungated (P1 version bump)", cm == "0", f"gated segments={cm}")
+    # Canusa Avenue/Street (US side) has the border as its centerline: never a
+    # crossing. Rue Canusa (QC-247) ENDS at the border at the Beebe Plain port
+    # of entry, west of -72.13: that one is a real customs stop.
+    along = [b for b in borders if "canusa" in b["name"].lower()
+             and not (b["name"].startswith("Rue") and b["lon"] < -72.13)]
+    ok &= check("street along the border not charged (Canusa Ave)", not along, f"tagged={along}")
+    conn = set(open(MINI / "build" / "us" / "connector-ids.txt").read().split())
+    gated = subprocess.run(["docker", "run", "--rm", "-v", f"{MINI}:/mini:ro", TOOLS, "sh", "-c",
+                            "osmium tags-filter -o /tmp/c.osm.pbf /mini/osrm-na-ferry/na-ferry.osm.pbf "
+                            "w/name='Cape May-Lewes Ferry Road' 2>/dev/null; osmium cat -f opl /tmp/c.osm.pbf "
+                            "| grep 'access=destination' | cut -d' ' -f1"],
+                           capture_output=True, text=True).stdout.split()
+    still = [w for w in gated if w in conn]
+    ok &= check("Cape May-Lewes dock-path segments ungated (P1 version bump)", not still,
+                f"gated on path={still}; gated off path={[w for w in gated if w not in conn]}")
 
     # Route-level
     tj = route((-117.0611, 32.5800), (-117.0382, 32.5149))      # Chula Vista -> Tijuana
@@ -146,7 +154,10 @@ def asserts() -> bool:
     br = route((-122.3380, 47.6020), (-122.6250, 47.5620))      # Seattle Colman Dock -> Bremerton
     ok &= check("Seattle->Bremerton uses a ferry", br and br[2], f"{br}")
     cl = route((-74.9060, 38.9350), (-75.1400, 38.7745))        # Cape May -> Lewes
-    ok &= check("Cape May->Lewes uses the ferry", cl and cl[2] and cl[0] < 40, f"{cl}")
+    # 85 min crossing + 30 boarding + ~15 driving; the stub-at-dock double
+    # boarding showed up here as 178 min.
+    ok &= check("Cape May->Lewes uses the ferry, 110-150 min", cl and cl[2] and cl[0] < 40
+                and 110 <= cl[1] <= 150, f"{cl}")
     dl = route((-72.0990, 45.0030), (-72.0960, 45.0090))        # Derby Line VT -> Stanstead QC
     ok &= check("Derby Line->Stanstead charged once (~20-25 min)", dl and 18 <= dl[1] <= 30, f"{dl}")
     return ok
