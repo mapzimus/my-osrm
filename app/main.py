@@ -51,6 +51,15 @@ def create_app() -> FastAPI:
             "ferries_overlay": (config.APP_DATA / "ferries.geojson").exists(),
         }
 
+    @app.middleware("http")
+    async def no_stale_app_code(request, call_next):
+        # our own JS/CSS/HTML changes often; vendor libs and the basemap are versioned/huge
+        resp = await call_next(request)
+        p = request.url.path
+        if not (p.startswith("/vendor/") or p.startswith("/basemap/") or p.startswith("/api/")):
+            resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
     app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
     for meta, router in tools:
         app.include_router(router, prefix=f"/api/{meta.id}", tags=[meta.id])
