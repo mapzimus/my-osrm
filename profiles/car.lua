@@ -104,7 +104,11 @@ function setup()
       'customers',
       'private',
       'delivery',
-      'destination'
+      'destination',
+      -- my-osrm: stock treats these as fully open (US bases, tribal lands,
+      -- gated communities). Same handling as private: last resort only.
+      'permit',
+      'military'
     },
 
     -- tags disallow access to in combination with highway=service
@@ -117,6 +121,8 @@ function setup()
       'delivery',
       'destination',
       'customers',
+      'permit',
+      'military',
     },
 
     access_tags_hierarchy = Sequence {
@@ -159,24 +165,28 @@ function setup()
     },
 
     speeds = Sequence {
+      -- my-osrm: speeds for roads with NO maxspeed tag (speed_reduction is
+      -- not applied to these). Stock values are European (unposted
+      -- residential 25 km/h, motorway 90); these are North American.
+      -- Northern unclassified gravel highways are the big beneficiary: at
+      -- the stock 25 the gravel cap (65) never applied to them.
+      -- winter_road / ice_road entries removed: those ways are skipped in
+      -- process_way (summer model).
       highway = {
-        motorway        = 90,
-        motorway_link   = 45,
-        trunk           = 85,
-        trunk_link      = 40,
-        primary         = 65,
-        primary_link    = 30,
-        secondary       = 55,
-        secondary_link  = 25,
-        tertiary        = 40,
-        tertiary_link   = 20,
-        unclassified    = 25,
-        residential     = 25,
+        motorway        = 105,
+        motorway_link   = 50,
+        trunk           = 90,
+        trunk_link      = 45,
+        primary         = 80,
+        primary_link    = 35,
+        secondary       = 70,
+        secondary_link  = 30,
+        tertiary        = 60,
+        tertiary_link   = 25,
+        unclassified    = 50,
+        residential     = 40,
         living_street   = 10,
-        service         = 15,
-        -- winter highway types (OSM highway=winter_road / highway=ice_road)
-        winter_road     = 20,
-        ice_road        = 15
+        service         = 15
       }
     },
 
@@ -208,15 +218,20 @@ function setup()
       'residential',
       'living_street',
       'unclassified',
-      'service',
-      'winter_road',
-      'ice_road'
+      'service'
     },
 
+    -- my-osrm: stock only whitelists no/widening/minor, so a live primary
+    -- tagged construction=yes (an in-place upgrade) was dropped entirely and
+    -- routes detoured around an open road. highway=construction itself is
+    -- still dropped earlier in the handlers.
     construction_whitelist = Set {
       'no',
       'widening',
       'minor',
+      'yes',
+      'motorway', 'trunk', 'primary', 'secondary', 'tertiary',
+      'unclassified', 'residential'
     },
 
     route_speeds = {
@@ -308,6 +323,14 @@ function setup()
 
     -- List only exceptions
     maxspeed_table = {
+      -- my-osrm: without these, maxspeed=US:motorway falls back to the
+      -- European default of 130 km/h.
+      ["us:motorway"] = 105,
+      ["us:rural"] = 88,
+      ["us:urban"] = 48,
+      ["ca:motorway"] = 100,
+      ["ca:rural"] = 80,
+      ["ca:urban"] = 50,
       ["at:rural"] = 100,
       ["at:trunk"] = 100,
       ["ar:urban"] = 40,
@@ -431,6 +454,27 @@ function process_node(profile, node, result, relations)
   Obstacles.process_node(profile, node)
 end
 
+-- my-osrm: WayHandlers.ferries and .movables set both modes unconditionally,
+-- undoing WayHandlers.oneway. Re-block the direction oneway closed.
+function reapply_oneway(profile, way, result, data)
+  if data.is_forward_oneway then
+    result.backward_mode = mode.inaccessible
+  end
+  if data.is_reverse_oneway then
+    result.forward_mode = mode.inaccessible
+  end
+end
+
+-- my-osrm: maxspeed only on roads. On route=ferry ways a "12 knots" value is
+-- read as 12 km/h and would replace route_speeds.ferry; timetabled ferries
+-- use their duration tag anyway.
+function maxspeed_roads_only(profile, way, result, data)
+  if data.route and data.route ~= '' then
+    return
+  end
+  return WayHandlers.maxspeed(profile, way, result, data)
+end
+
 function process_way(profile, way, result, relations)
   -- the intial filtering of ways based on presence of tags
   -- affects processing times significantly, because all ways
@@ -463,9 +507,13 @@ function process_way(profile, way, result, relations)
   -- my-osrm: model summer driving. Winter/ice roads (e.g. northern Manitoba,
   -- Tibbitt-Contwoyto) open ~6-10 weeks a year, and ~380 of them are tagged
   -- secondary/tertiary, so stock OSRM routes over frozen lakes year-round.
-  if way:get_value_by_key('winter_road') == 'yes' or
+  -- Both tagging styles: the highway VALUE (highway=winter_road) and the
+  -- extra tag on a normal road (winter_road=yes); surface=ice as a catch-all.
+  if data.highway == 'winter_road' or data.highway == 'ice_road' or
+     way:get_value_by_key('winter_road') == 'yes' or
      way:get_value_by_key('ice_road') == 'yes' or
-     way:get_value_by_key('seasonal') == 'winter'
+     way:get_value_by_key('seasonal') == 'winter' or
+     way:get_value_by_key('surface') == 'ice'
   then
     return
   end
@@ -498,6 +546,10 @@ function process_way(profile, way, result, relations)
     -- check whether we're using a special transport mode
     WayHandlers.ferries,
     WayHandlers.movables,
+    -- my-osrm: both handlers above reset forward AND backward mode, which
+    -- wipes what WayHandlers.oneway decided: a oneway=yes ferry or movable
+    -- bridge became drivable backwards. Re-apply it.
+    reapply_oneway,
 
     -- handle service road restrictions
     WayHandlers.service,
@@ -507,7 +559,9 @@ function process_way(profile, way, result, relations)
 
     -- compute speed taking into account way type, maxspeed tags, etc.
     WayHandlers.speed,
-    WayHandlers.maxspeed,
+    -- my-osrm: skip maxspeed on route ways. A ferry's "maxspeed=12 knots"
+    -- parsed as 12 km/h and replaced route_speeds.ferry.
+    maxspeed_roads_only,
     WayHandlers.surface,
 
     -- apply vehicle-specific maximum speed cap before calculating rates
@@ -583,9 +637,12 @@ function process_turn(profile, turn)
     end
   end
 
-  -- my-osrm: boarding a ferry (any mode -> ferry; ferry -> ferry joints of a
-  -- split crossing don't count again).
-  if turn.target_mode == mode.ferry and turn.source_mode ~= mode.ferry then
+  -- my-osrm: boarding a ferry. Any mode -> ferry is a boarding. Ferry -> ferry
+  -- at a degree-2 node is a joint of one split crossing (no charge); at a
+  -- node with a road attached it's a change of boat at a shared dock
+  -- (Anacortes, Woods Hole), which is a new boarding.
+  if turn.target_mode == mode.ferry and
+     (turn.source_mode ~= mode.ferry or turn.number_of_roads > 2) then
     turn.duration = turn.duration + profile.ferry_boarding
   end
 
