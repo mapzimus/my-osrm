@@ -50,8 +50,11 @@ def main() -> int:
         return 1
 
     r = c.post("/api/route", json={"engine": args.engine, "coords": [GRAND_ISLE, PLATTSBURGH]}).json()
-    check("Lake Champlain ferry route", r.get("used_ferry") is True and r.get("miles", 99) < 25,
-          f"{r.get('miles', 0):.0f} mi, {r.get('hours', 0):.2f} h, ferry={r.get('used_ferry')}")
+    detail = f"{r.get('miles', 0):.0f} mi, {r.get('hours', 0):.2f} h, ferry={r.get('used_ferry')}"
+    if "ferry" in args.engine:
+        check("Lake Champlain ferry route (<25 mi)", r.get("used_ferry") is True and r.get("miles", 99) < 25, detail)
+    else:   # no ferries on this engine: expect the long way round via Rouses Point
+        check("Lake Champlain detour on a no-ferry engine (>40 mi)", r.get("miles", 0) > 40, detail)
 
     r = c.post("/api/route", json={"engine": args.engine, "coords": [BOS, [-77.0365, 38.8977]]}).json()
     check("Boston -> DC drive time 6.5-8.5 h", 6.5 <= r.get("hours", 0) <= 8.5, f"{r.get('hours', 0):.2f} h")
