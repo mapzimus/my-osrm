@@ -36,6 +36,7 @@ SOURCE = {
     "cam": GEOFABRIK,
     "pr": f"{GEOFABRIK}/north-america/us",
     "bm": "https://download.openstreetmap.fr/extracts/north-america",
+    "gl": f"{GEOFABRIK}/north-america",
 }
 
 

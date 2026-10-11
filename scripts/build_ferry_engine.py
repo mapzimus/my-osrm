@@ -45,6 +45,8 @@ COUNTRIES = {
     "pr": ("puerto-rico-latest.osm.pbf", "build/pr/puerto-rico-major.osm.pbf"),
     # openstreetmap.fr extract (Geofabrik has none).
     "bm": ("bermuda-latest.osm.pbf", "build/bm/bermuda-major.osm.pbf"),
+    # No road between towns; each is reached by plane (flights.py).
+    "gl": ("greenland-latest.osm.pbf", "build/gl/greenland-major.osm.pbf"),
 }
 MAJOR_FILTER = (
     "w/highway=motorway,trunk,primary,secondary,tertiary,"

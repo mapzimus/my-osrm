@@ -31,6 +31,9 @@ ORIGIN = (-71.0589, 42.3601)
 # Where the Hawaii inset sits, in main-map projected units: the empty Pacific
 # west of Baja (Hawaii's true position would widen the whole map ~25%).
 INSET_XY = (-0.66, -0.20, -0.31, -0.52)            # left, top, right, bottom
+# Greenland inset: top right, over its own true position (open water once
+# Greenland itself is drawn in the inset instead of the main map).
+GREENLAND_XY = (0.37, 0.66, 0.62, 0.40)
 BIG_PLANES = {"HNL", "MIA", "BDA"}
 TRAIL = (120, 128, 142)
 TRAIL_FADE = 1.5                                    # hours a trail lingers after landing
@@ -216,19 +219,33 @@ def main() -> None:
 
     filled, valid, land, lons, lats, step, legs = load_field(args.name, ORIGIN)
     lon_g, lat_g = np.meshgrid(lons, lats)
-    hw = flights.HAWAII
-    in_hawaii = (lon_g >= hw[0]) & (lon_g <= hw[2]) & (lat_g >= hw[1]) & (lat_g <= hw[3])
+    def inside(b):
+        return (lon_g >= b[0]) & (lon_g <= b[2]) & (lat_g >= b[1]) & (lat_g <= b[3])
+
+    hw, gl = flights.HAWAII, flights.GREENLAND
+    in_hawaii, in_greenland = inside(hw), inside(gl)
 
     H, Lm, to_px, xy_px = rasterize(Albers(), filled, valid, land, lons, lats, step, box,
-                                    keep=~in_hawaii)
-    ix0, iy0 = (int(v) for v in xy_px(INSET_XY[0], INSET_XY[1]))
-    ix1, iy1 = (int(v) for v in xy_px(INSET_XY[2], INSET_XY[3]))
-    inset_box = (ix0, iy0, ix1, iy1)
-    Hi, Lmi, to_px_i, _ = rasterize(Albers(lon0=-157.3, lat0=20.5, lat1=19.0, lat2=22.0),
-                                    filled, valid, land, lons, lats, step, inset_box,
-                                    keep=in_hawaii)
+                                    keep=~in_hawaii & ~in_greenland)
 
-    finite = np.concatenate([H[np.isfinite(H)], Hi[np.isfinite(Hi)]])
+    def screen_box(xy):
+        x0_, y0_ = (int(v) for v in xy_px(xy[0], xy[1]))
+        x1_, y1_ = (int(v) for v in xy_px(xy[2], xy[3]))
+        return (x0_, y0_, x1_, y1_)
+
+    insets = []                      # (box, layer data, to_px, label, region)
+    for xy, proj, keep, label, region in (
+        (INSET_XY, Albers(lon0=-157.3, lat0=20.5, lat1=19.0, lat2=22.0), in_hawaii, "Hawaii", hw),
+        (GREENLAND_XY, Albers(lon0=-52.0, lat0=66.0, lat1=63.0, lat2=70.0), in_greenland,
+         "Greenland", gl),
+    ):
+        if not (valid & keep).any():
+            continue
+        ibox = screen_box(xy)
+        Hi, Lmi, to_px_i, _ = rasterize(proj, filled, valid, land, lons, lats, step, ibox, keep=keep)
+        insets.append((ibox, Hi, Lmi, to_px_i, label, region))
+
+    finite = np.concatenate([H[np.isfinite(H)]] + [i[1][np.isfinite(i[1])] for i in insets])
     t_end = float(np.ceil(finite.max()))
     n_bands = int(t_end)
     pal = iso.palette_for(n_bands)[:, :3].astype(np.float32)
@@ -237,12 +254,15 @@ def main() -> None:
     # stripes turn into a zebra texture at this scale; day lines carry it.
     for b in range(1, n_bands + 1):
         pal[b] = pal[(b - 1) // iso.DAY_HOURS * iso.DAY_HOURS + 1]
-    main_layer, inset_layer = Layer(H, Lm, pal, n_bands), Layer(Hi, Lmi, pal, n_bands)
+    main_layer = Layer(H, Lm, pal, n_bands)
+    inset_layers = [(ibox, Layer(Hi, Lmi, pal, n_bands), label)
+                    for ibox, Hi, Lmi, _, label, _ in insets]
 
     def place(lon, lat):
-        """Canvas position, routing Hawaiian points into the inset."""
-        if hw[0] <= lon <= hw[2] and hw[1] <= lat <= hw[3]:
-            return tuple(float(v) for v in to_px_i(lon, lat))
+        """Canvas position, routing inset points (Hawaii, Greenland) into their inset."""
+        for _, _, _, to_px_i, _, r in insets:
+            if r[0] <= lon <= r[2] and r[1] <= lat <= r[3]:
+                return tuple(float(v) for v in to_px_i(lon, lat))
         return tuple(float(v) for v in to_px(lon, lat))
 
     x0, y0, x1, y1 = box
@@ -267,8 +287,7 @@ def main() -> None:
     # Draw the full schedule, hub legs included (BOS -> MIA serves no island,
     # so compute_hours doesn't return it).
     if legs:
-        home_leg = next(l for l in legs if l.src == "BOS")
-        legs = flights.plan(home_leg.depart - flights.AIRPORT_BEFORE)
+        legs = flights.plan(iso.drive_to_airports(URL, origin))
     paths = [(leg, arc(place(*flights.AIRPORTS[leg.src][1:]), place(*flights.AIRPORTS[leg.dst][1:]),
                        lift=0.22 if leg.src == "BOS" else 0.35)) for leg in legs]
 
@@ -291,10 +310,12 @@ def main() -> None:
     for i, t in enumerate(timeline):
         canvas = Image.new("RGB", (W, Hc), tuple(int(v) for v in WATER))
         canvas.paste(main_layer.paint(t), (x0, y0))
-        canvas.paste(inset_layer.paint(t), (ix0, iy0))
+        for ibox, layer, _ in inset_layers:
+            canvas.paste(layer.paint(t), ibox[:2])
         d = ImageDraw.Draw(canvas)
-        d.rectangle(inset_box, outline=(70, 78, 92), width=1)
-        d.text((ix0 + 8, iy0 + 6), "Hawaii", font=f_small, fill=MUTED)
+        for ibox, _, label in inset_layers:
+            d.rectangle(ibox, outline=(70, 78, 92), width=1)
+            d.text((ibox[0] + 8, ibox[1] + 6), label, font=f_small, fill=MUTED)
         d.text((40, title_y), f"How far can you drive from {args.name}?", font=f_title, fill=INK)
         d.text((42, title_y + 64),
                f"Drive time from {'Boston City Hall' if args.name == 'Boston' else args.name}."

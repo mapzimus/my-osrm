@@ -1,11 +1,12 @@
 """Flights to road networks you can't drive to (Hawaii, Puerto Rico).
 
 Timing model (all hours from leaving the origin):
-    drive origin -> home airport
+    drive origin -> departure airport (any airport in DRIVE_TO)
     + AIRPORT_BEFORE           arrive early, security, boarding
     + flight                   great-circle miles / CRUISE_MPH + TAXI_CLIMB
     + AIRPORT_AFTER            deplane, rental car             -> "ready"
-Connections (Honolulu -> neighbor islands) leave CONNECTION after landing.
+Connections (Honolulu -> neighbor islands, Miami -> Caribbean, Anchorage ->
+bush Alaska...) leave CONNECTION after landing.
 
 There are no inter-island car ferries in Hawaii (the Superferry stopped in
 2009), so the neighbor islands are reached by these short hops. Every
@@ -21,7 +22,7 @@ from dataclasses import dataclass, asdict
 CRUISE_MPH = 500
 TAXI_CLIMB = 0.5
 AIRPORT_BEFORE = 1.5
-AIRPORT_AFTER = 0.5
+AIRPORT_AFTER = 25 / 60          # deplane, bags, rental car: 20-30 min
 CONNECTION = 1.5
 
 AIRPORTS = {
@@ -69,6 +70,31 @@ AIRPORTS = {
     "AUA": ("Aruba", -70.0152, 12.5014),
     "CUR": ("Curacao", -68.9598, 12.1889),
     "BON": ("Bonaire", -68.2685, 12.1310),
+    # Greenland: no roads between towns. Summer nonstop from Newark.
+    "EWR": ("Newark", -74.1745, 40.6895),
+    "GOH": ("Nuuk", -51.6781, 64.1909),
+    "SFJ": ("Kangerlussuaq", -50.7116, 67.0122),
+    "JAV": ("Ilulissat", -51.0571, 69.2432),
+    "JHS": ("Sisimiut", -53.7293, 66.9513),
+    # Fly-in North: towns with roads but no road out
+    "ANC": ("Anchorage", -149.9982, 61.1743),
+    "OME": ("Nome", -165.4453, 64.5122),
+    "BET": ("Bethel", -161.8380, 60.7798),
+    "BRW": ("Utqiagvik", -156.7660, 71.2854),
+    "OTZ": ("Kotzebue", -162.5985, 66.8847),
+    "YUL": ("Montreal", -73.7408, 45.4706),
+    "YFB": ("Iqaluit", -68.5558, 63.7564),
+    "YVP": ("Kuujjuaq", -68.4269, 58.0961),
+    "YYR": ("Goose Bay", -60.4258, 53.3192),
+    "YDP": ("Nain", -61.6800, 56.5492),
+    "YWG": ("Winnipeg", -97.2399, 49.9100),
+    "YRT": ("Rankin Inlet", -92.1158, 62.8114),
+    "YEG": ("Edmonton", -113.5797, 53.3097),
+    "YCB": ("Cambridge Bay", -105.1383, 69.1081),
+    # Small Central American islands
+    "ADZ": ("San Andres", -81.7112, 12.5836),
+    "MGA": ("Managua", -86.1682, 12.1415),
+    "RNI": ("Corn Island", -83.0638, 12.1629),
 }
 
 # Island road networks each arrival airport serves (west, south, east, north).
@@ -89,12 +115,32 @@ CARIBBEAN = {
     "trinidad_tobago": ((-62.0, 10.0, -60.4, 11.4), ["POS", "TAB"]),
     "abc_islands": ((-70.2, 11.9, -68.1, 12.8), ["AUA", "CUR", "BON"]),
 }
-# Hubs only connect: Miami is on the mainland road network, so it drives
-# nothing (an empty box never overlaps a map region).
+# West edge 58W: below 72.5N (the map's top) Baffin Island's east coast stops
+# near 61W and Greenland's west coast starts near 56W, so this splits them.
+GREENLAND = (-58.0, 59.0, -11.0, 84.0)
+
+
+def town(code: str, dlon: float = 1.2, dlat: float = 0.6) -> tuple:
+    """Box around a fly-in town's local road network."""
+    _, lon, lat = AIRPORTS[code]
+    return (lon - dlon, lat - dlat, lon + dlon, lat + dlat)
+
+
+# Hubs and departure airports only connect: they sit on the mainland road
+# network, so they drive nothing (an empty box never overlaps a map region).
 NOWHERE = (0.0, 0.0, 0.0, 0.0)
 SERVES = {"HNL": HAWAII, "OGG": HAWAII, "KOA": HAWAII, "ITO": HAWAII,
-          "LIH": HAWAII, "SJU": PUERTO_RICO, "MIA": NOWHERE, "BDA": BERMUDA}
+          "LIH": HAWAII, "SJU": PUERTO_RICO, "BDA": BERMUDA}
 SERVES.update({code: box for box, codes in CARIBBEAN.values() for code in codes})
+SERVES.update({code: town(code) for code in
+               ("GOH", "SFJ", "JAV", "JHS", "OME", "BET", "BRW", "OTZ",
+                "YFB", "YVP", "YDP", "YRT", "YCB", "ADZ", "RNI")})
+SERVES.update({code: NOWHERE for code in ("BOS", "EWR", "MIA", "ANC", "YUL", "YYR",
+                                          "YWG", "YEG", "MGA")})
+
+# Airports reached by driving from the origin: drive as far as roads go,
+# then fly. Only Honolulu, Miami and Bermuda are flown out of Logan.
+DRIVE_TO = ("BOS", "EWR", "ANC", "YUL", "YYR", "YWG", "YEG", "MGA")
 
 # (from, to); a "from" other than the home airport is a connection.
 # Every Caribbean island, Puerto Rico included, connects through Miami,
@@ -104,6 +150,13 @@ HUB = "MIA"
 ROUTES = [("BOS", "HNL"), ("BOS", "BDA"), ("BOS", HUB), (HUB, "SJU"),
           ("HNL", "OGG"), ("HNL", "KOA"), ("HNL", "ITO"), ("HNL", "LIH")]
 ROUTES += [(HUB, code) for _, codes in CARIBBEAN.values() for code in codes]
+# Greenland: drive to Newark, summer nonstop to Nuuk, Air Greenland hops.
+ROUTES += [("EWR", "GOH"), ("GOH", "SFJ"), ("GOH", "JAV"), ("GOH", "JHS")]
+# Fly-in towns from the regional airport you drive to (DRIVE_TO).
+ROUTES += [("ANC", "OME"), ("ANC", "BET"), ("ANC", "BRW"), ("ANC", "OTZ"),
+           ("YUL", "YFB"), ("YUL", "YVP"), ("YYR", "YDP"),
+           ("YWG", "YRT"), ("YEG", "YCB"),
+           (HUB, "ADZ"), ("MGA", "RNI")]
 
 
 @dataclass
@@ -125,12 +178,15 @@ def gc_miles(a: str, b: str) -> float:
     return 3958.8 * c
 
 
-def plan(hours_to_home_airport: float, home: str = "BOS") -> list[Leg]:
-    """Schedule every leg in ROUTES, connections after their inbound leg."""
+def plan(drive_hours: dict[str, float]) -> list[Leg]:
+    """Schedule every leg in ROUTES, connections after their inbound leg.
+
+    drive_hours: hours from the origin to each DRIVE_TO airport.
+    """
     legs: dict[str, Leg] = {}
     for src, dst in ROUTES:
-        if src == home:
-            depart = hours_to_home_airport + AIRPORT_BEFORE
+        if src in drive_hours:
+            depart = drive_hours[src] + AIRPORT_BEFORE
         else:
             depart = legs[src].arrive + CONNECTION
         miles = gc_miles(src, dst)
