@@ -361,3 +361,34 @@ to = [-73.5673, 45.5017]
 max_miles = 360              # ~335 mi via Hwy 401
 hours = [4.6, 5.9]           # free-flow ~5 h
 note = "Canadian control"
+
+# --- Car ferries that OSM tags only foot=yes (2026-10-11 audit) ---
+# car_ferries.py dropped these as "foot passengers, silent on cars". Each
+# case fails if the ferry is missing: the land detour is several times longer.
+
+[[case]]
+name = "Tobermory ON -> South Baymouth ON (Chi-Cheemaun)"
+kind = "ferry"
+needs = "na"
+from = [-81.6650, 45.2550]   # Tobermory harbour
+to = [-82.0150, 45.5560]     # South Baymouth, Manitoulin Island
+max_miles = 60               # ferry ~30 mi; around via Sudbury ~430 mi
+note = "Owen Sound Transportation, ~1h45 crossing, May-October"
+
+[[case]]
+name = "Seattle -> Bremerton (WSF)"
+kind = "ferry"
+needs = "us"
+from = [-122.3340, 47.6050]  # downtown Seattle
+to = [-122.6260, 47.5620]    # Bremerton terminal
+max_miles = 21               # direct ferry ~15 mi; via Bainbridge ~25 mi; land ~70 mi
+note = "Colman Dock <-> Bremerton, 60-min crossing"
+
+[[case]]
+name = "Milwaukee WI -> Muskegon MI (Lake Express)"
+kind = "ferry"
+needs = "us"
+from = [-87.9065, 43.0389]   # downtown Milwaukee
+to = [-86.2484, 43.2342]     # downtown Muskegon
+max_miles = 130              # ferry ~85 mi; around via Chicago ~275 mi
+note = "Lake Express high-speed car ferry, 2.5-h crossing, May-October"

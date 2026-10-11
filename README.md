@@ -1,13 +1,13 @@
 # my-osrm
 
-A self-hosted [OSRM](https://github.com/Project-OSRM/osrm-backend) routing engine for driving in the US, Canada and Mexico,
+A self-hosted [OSRM](https://github.com/Project-OSRM/osrm-backend) routing engine for driving in North America (US, Canada, Mexico, Central America, Puerto Rico, Bermuda, Greenland),
 with ferries, running in Docker. Extracted from [mapzimus/optitrek](https://github.com/mapzimus/optitrek),
 where it powered the road-trip optimizer.
 
 ## Quick start
 
 ```bash
-docker compose up -d                      # US + Canada + Mexico + ferries on :5002
+docker compose up -d                      # North America + ferries on :5002
 python benchmarks/report_card.py --url http://127.0.0.1:5002 --engine na
 ```
 
@@ -18,7 +18,7 @@ Grand Isle VT → Plattsburgh NY over the Lake Champlain ferry:
 
 | Engine | Compose service | Port | Size | Report card |
 |---|---|---|---|---|
-| **US + Canada + Mexico major roads + ferries** | `na-ferry` (default) | 5002 | ~6 GB | **10/10** (incl. drive-time bands) |
+| **North America major roads + ferries** (US, CA, MX, Central America, PR, BM, GL) | `na-ferry` (default) | 5002 | ~6 GB | see `benchmarks/report_card.py` (incl. drive-time bands) |
 | US + Canada major roads | `na-major` (`--profile major`) | 5001 | ~6 GB | 4/8 |
 | US major roads | `us-major` (`--profile major`) | 5000 | ~5 GB | 2/6 |
 | Full US, every road | `us-full` (`--profile full`) | 5003 | ~75 GB | needs 64+ GB RAM: cloud VM only |
@@ -35,7 +35,10 @@ The major-roads filter strips the small service roads that link ferry docks to t
 ferries were stranded islands. `scripts/ferry_connectors.py` keeps every car ferry plus, for each dock,
 the shortest *legal* path out and in (one-way aware) to the major network. It also keeps small-road
 islands whole and opens `access=private` ferry staging lanes. `scripts/build_ferry_engine.py` merges
-that into the US + Canada + Mexico major roads and builds. Adding a country is one row in its `COUNTRIES` table.
+that into the merged major roads of every region in its `COUNTRIES` table and builds. Adding a region is one row there.
+`scripts/car_ferries.py` then drops rail, freight, tour and foot-passenger-only boats (with a keep-list for car
+ferries that OSM tags only `foot=yes`, e.g. the Chi-Cheemaun). The Central America extract from Geofabrik also
+covers the Caribbean islands; they come along as isolated networks.
 
 ## Drive times
 
@@ -57,7 +60,7 @@ The report card's control cases check drive times against real-world bands.
 | `scripts/inspect_node.py` | Debug: list every way touching an OSM node |
 | `tools/Dockerfile` | `my-osrm-tools`: osmium + pyosmium + shapely |
 
-All Docker images are pinned by digest (OSRM v26.5.0, osmium 1.19.0). `data/` (~110 GB) is gitignored.
+All Docker images are pinned by digest (OSRM v26.5.0, osmium 1.19.0, the `tools/` base image). `data/` (~110 GB) is gitignored.
 
 ## Roadmap
 

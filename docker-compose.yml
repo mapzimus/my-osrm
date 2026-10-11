@@ -1,6 +1,6 @@
 # my-osrm — OSRM routing engines
 #
-#   docker compose up -d                       # default: US+Canada+ferries on :5002
+#   docker compose up -d                       # default: North America + ferries on :5002
 #   docker compose --profile major up -d       # + the two older major-roads engines
 #   curl "http://127.0.0.1:5002/route/v1/driving/-73.3510,44.7206;-73.4529,44.6995?overview=false"
 #
@@ -12,15 +12,19 @@ x-osrm: &osrm
   image: ghcr.io/project-osrm/osrm-backend@sha256:aa6a1de3a71dafffd0ba39340542524f66e6841fc19bf7874a0e6a7967837f56
   restart: unless-stopped
   healthcheck:
-    test: ["CMD-SHELL", "wget -qO- http://localhost:5000/route/v1/driving/-77.0,38.9;-77.0,38.9 || exit 1"]
+    # Exec form, not CMD-SHELL: sh split the URL at ';'. And 127.0.0.1, not
+    # localhost: in this Alpine image localhost resolves to ::1 while
+    # osrm-routed listens on IPv4 only, so every engine stayed "unhealthy".
+    test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5000/route/v1/driving/-77.0,38.9;-77.0,38.9"]
     interval: 30s
     timeout: 5s
     retries: 3
-    start_period: 60s
+    start_period: 120s         # na-ferry maps ~6 GB before it answers
 
 services:
-  # Recommended engine. US + Canada major roads + every car ferry with its
-  # dock connectors (scripts/build_ferry_engine.py). Report card 8/8.
+  # Recommended engine. Major roads of the US, Canada, Mexico, Central America,
+  # Puerto Rico, Bermuda and Greenland + every car ferry with its dock
+  # connectors (scripts/build_ferry_engine.py). Report card: benchmarks/.
   na-ferry:
     <<: *osrm
     container_name: my-osrm-na-ferry
