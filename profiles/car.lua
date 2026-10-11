@@ -220,7 +220,10 @@ function setup()
     },
 
     route_speeds = {
-      ferry = 5,
+      -- my-osrm: stock 5 km/h (walking pace). Only applies to ferries with
+      -- no duration tag, which is 808 of 1,208 car ferries (Oct 2026); real
+      -- car ferries run ~20-30 km/h. Timetabled ferries keep their duration.
+      ferry = 25,
       shuttle_train = 10
     },
 
