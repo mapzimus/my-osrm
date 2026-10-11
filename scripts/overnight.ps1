@@ -7,6 +7,11 @@
 # morning summary (step results, report card, airport snaps, key times).
 
 $ErrorActionPreference = 'Continue'
+
+# Keep Windows from idle-sleeping while this script runs (released when the
+# process exits; no power settings are changed). ES_CONTINUOUS|ES_SYSTEM_REQUIRED.
+Add-Type -Namespace Win32 -Name Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);'
+[void][Win32.Power]::SetThreadExecutionState([uint32]'0x80000001')
 $Root = Split-Path -Parent $PSScriptRoot
 $Py = 'C:\Users\mhowe\AppData\Local\Python\bin\python.exe'
 $Iso = Join-Path $Root 'experiments\isochrone'
