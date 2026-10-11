@@ -5,8 +5,9 @@ Per country, from its raw Geofabrik extract in data/:
     2. ferry_connectors.py  -> data/build/<cc>/ferry-connectors.osm.pbf
     3. (US, Canada) unclassified roads north of NORTH_LAT
 Then merge, dedup (newest version of each object), mark national border
-crossings (border_crossings.py), and run extract -> partition -> customize
-with profiles/car.lua.
+crossings (border_crossings.py), drop ferries that don't carry cars
+(car_ferries.py), and run extract -> partition -> customize with
+profiles/car.lua.
 
 Output: data/osrm-na-ferry/na-ferry.osrm*  (served on :5002 by docker compose)
 
@@ -120,9 +121,13 @@ def main() -> None:
     # time-filter with no time keeps the newest version of each.
     stage(dedup, "dedup", TOOLS_IMAGE, "osmium", "time-filter", "--overwrite",
           "-o", f"{out}/{dedup.name}", f"{out}/{merged.name}")
-    stage(pbf, "border crossings", TOOLS_IMAGE, "python", "/scripts/border_crossings.py",
-          f"{out}/{dedup.name}", f"{out}/{pbf.name}", f"{out}/borders",
+    borders = OUT / "na-borders.osm.pbf"
+    stage(borders, "border crossings", TOOLS_IMAGE, "python", "/scripts/border_crossings.py",
+          f"{out}/{dedup.name}", f"{out}/{borders.name}", f"{out}/borders",
           *[f"/data/{raw}" for raw, _ in COUNTRIES.values()])
+    # Drop rail, freight, tour and foot-passenger ferries (car_ferries.py).
+    stage(pbf, "car ferries only", TOOLS_IMAGE, "python", "/scripts/car_ferries.py",
+          f"{out}/{borders.name}", f"{out}/{pbf.name}", f"{out}/ferries")
     stage(osrm.with_suffix(".osrm.fileIndex"), "extract", OSRM_IMAGE,
           "osrm-extract", "-p", "/opt/car.lua", "--threads", THREADS,
           f"/data/osrm-na-ferry/{pbf.name}")
