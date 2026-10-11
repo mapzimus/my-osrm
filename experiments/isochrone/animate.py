@@ -38,9 +38,10 @@ BIG_PLANES = {"SEA", "HNL", "MIA", "BDA"}
 TRAIL = (120, 128, 142)
 TRAIL_FADE = 1.5                                    # hours a trail lingers after landing
 # Video-only labels for places not in isochrone.CITIES (times read off the grid).
-EXTRA_CITIES = {"Havana": (-82.3666, 23.1136), "Santo Domingo": (-69.9312, 18.4861),
-                "Nassau": (-77.3554, 25.0480), "Port of Spain": (-61.5190, 10.6596),
-                "Bermuda": (-64.7814, 32.2949)}
+EXTRA_CITIES = {"Havana": (-82.3666, 23.1136), "Nassau": (-77.3554, 25.0480),
+                "Port of Spain": (-61.5190, 10.6596), "Bermuda": (-64.7814, 32.2949),
+                "Nuuk": (-51.7216, 64.1814), "Iqaluit": (-68.5170, 63.7467),
+                "Utqiagvik": (-156.7886, 71.2906)}
 
 FONTS = Path("C:/Windows/Fonts")
 FPS = 30
@@ -62,7 +63,7 @@ VIDEO_CITIES = [
     "Panama City", "Honolulu", "Hilo", "San Juan",
 ]
 LEFT_LABELS = {"Seattle", "San Francisco", "Los Angeles", "Anchorage", "Key West",
-               "Chicago", "St. John's NL"}
+               "Chicago", "St. John's NL", "Miami", "Havana", "Cancún", "San Juan"}
 
 FORMATS = {
     # canvas, map box (x0, y0, x1, y1), title y. Reels keep everything inside
@@ -241,7 +242,10 @@ def main() -> None:
     ):
         if not (valid & keep).any():
             continue
-        ibox = screen_box(xy)
+        # Clamp to the map area so an inset never runs into the clock below.
+        bx0, by0, bx1, by1 = box
+        ibox = tuple(int(v) for v in np.clip(screen_box(xy), [bx0, by0, bx0, by0],
+                                             [bx1, by1, bx1, by1]))
         Hi, Lmi, to_px_i, _ = rasterize(proj, filled, valid, land, lons, lats, step, ibox, keep=keep)
         insets.append((ibox, Hi, Lmi, to_px_i, label, region))
 
@@ -315,7 +319,7 @@ def main() -> None:
         d = ImageDraw.Draw(canvas)
         for ibox, _, label in inset_layers:
             d.rectangle(ibox, outline=(70, 78, 92), width=1)
-            d.text((ibox[0] + 8, ibox[1] + 6), label, font=f_small, fill=MUTED)
+            d.text((ibox[0] + 8, ibox[3] - 28), label, font=f_small, fill=MUTED)
         d.text((40, title_y), f"How far can you drive from {args.name}?", font=f_title, fill=INK)
         d.text((42, title_y + 64),
                f"Drive time from {'Boston City Hall' if args.name == 'Boston' else args.name}."
@@ -355,6 +359,8 @@ def main() -> None:
             text = f"{nm} {hrs:.1f} h"
             tw = d.textlength(text, font=f_label)
             tx = px - 10 - tw if nm in LEFT_LABELS else px + 10
+            if tx + tw > W - 8:                     # would leave the frame: flip left
+                tx = px - 10 - tw
             d.ellipse((px - 4, py - 4, px + 4, py + 4), fill=fill, outline=(13, 17, 23))
             d.text((tx, py - 14), text, font=f_label, fill=fill,
                    stroke_width=3, stroke_fill=tuple(int(v) for v in WATER))
