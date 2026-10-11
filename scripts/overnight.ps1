@@ -24,7 +24,7 @@ $results = [ordered]@{}
 
 function Step([string]$name, [scriptblock]$body) {
     $t0 = Get-Date
-    "`n===== $name  ($(Get-Date -Format 'HH:mm:ss')) =====" | Tee-Object -FilePath $Log -Append
+    "`n===== $name  ($(Get-Date -Format 'HH:mm:ss')) =====" | Tee-Object -FilePath $Log -Append | Out-Host
     $global:LASTEXITCODE = 0
     # Out-Host: step output goes to the log and console, never into this
     # function's return value (which must be just the success flag).

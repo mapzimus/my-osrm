@@ -251,14 +251,20 @@ def main(raw: str, out_dir: str) -> None:
             })
 
     # 4. Ferry ways + connector ways (with their nodes) -> one PBF.
-    ids_txt.write_text("".join(f"w{i}\n" for i in sorted(keep)))
-    raw_connectors = out / "connector-ways-raw.osm.pbf"
-    run("osmium", "getid", "--overwrite", "-r", "-i", str(ids_txt),
-        "-o", str(raw_connectors), str(near_pbf))
-    ungated = ungate(raw_connectors, connectors_pbf, keep & graph.gated_ways)
-    print(f"ungated connector ways: {ungated}", flush=True)
-    run("osmium", "merge", "--overwrite", "-o", str(result_pbf),
-        str(ferries_pbf), str(connectors_pbf))
+    if keep:
+        ids_txt.write_text("".join(f"w{i}\n" for i in sorted(keep)))
+        raw_connectors = out / "connector-ways-raw.osm.pbf"
+        run("osmium", "getid", "--overwrite", "-r", "-i", str(ids_txt),
+            "-o", str(raw_connectors), str(near_pbf))
+        ungated = ungate(raw_connectors, connectors_pbf, keep & graph.gated_ways)
+        print(f"ungated connector ways: {ungated}", flush=True)
+        run("osmium", "merge", "--overwrite", "-o", str(result_pbf),
+            str(ferries_pbf), str(connectors_pbf))
+    else:
+        # Every dock already sits on a major road (Bermuda): osmium getid
+        # rejects an empty id list, and the ferries alone are the result.
+        print("no connector ways needed", flush=True)
+        run("osmium", "cat", "--overwrite", "-o", str(result_pbf), str(ferries_pbf))
 
     counts: dict[str, int] = defaultdict(int)
     for r in report:
