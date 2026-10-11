@@ -54,7 +54,7 @@ export async function init(ctx) {
 
   function save() {
     if (!origin) return;
-    ctx.state.set([`${origin[0].toFixed(5)},${origin[1].toFixed(5)}`, regionSel.value, hoursIn.value || 0, encodeURIComponent(nameIn.value), excluded().join("+")].join("|"));
+    ctx.state.set([`${origin[0].toFixed(5)},${origin[1].toFixed(5)}`, regionSel.value, hoursIn.value || 0, encodeURIComponent(nameIn.value), excluded().join("-")].join("|"));
   }
 
   async function run() {
@@ -93,7 +93,7 @@ export async function init(ctx) {
   if (saved) {
     const [o, region, hours, name, excl] = saved.split("|");
     // restore the settings first: setOrigin() calls save(), which reads them back
-    for (const cb of exclBoxes.map((l) => l.firstChild)) cb.checked = (excl || "").split("+").includes(cb.value);
+    for (const cb of exclBoxes.map((l) => l.firstChild)) cb.checked = (excl || "").split("-").includes(cb.value);
     if (region && [...regionSel.options].some((op) => op.value === region)) regionSel.value = region;
     hoursIn.value = hours || 0;
     customRow.hidden = regionSel.value !== "custom";
