@@ -32,11 +32,14 @@ class IsoIn(BaseModel):
     hours: int | None = Field(default=None, ge=1, le=200)   # None/0 = auto
     fill: bool = True                               # Natural Earth land fill (needs Docker)
     flights: bool = False
+    exclude: list[str] = Field(default_factory=list, max_length=12)   # country codes / groups to skip
 
 
 @router.get("/presets")
 def presets() -> dict:
-    return {"regions": PRESETS, "docker": shutil.which("docker") is not None}
+    return {"regions": PRESETS, "docker": shutil.which("docker") is not None,
+            "countries": [{"code": k, "label": v} for k, v in iso.countrymask.LABELS.items()],
+            "countries_ready": iso.countrymask.SHP.exists()}
 
 
 @router.post("/jobs")
@@ -58,13 +61,19 @@ def start(body: IsoIn, request: Request) -> dict:
         region = (tuple(body.bbox), body.step)
     origin = (float(body.origin[0]), float(body.origin[1]))
     fill = body.fill and shutil.which("docker") is not None
+    exclude = iso.countrymask.expand(body.exclude)
+    unknown = [c for c in exclude if c not in {x for g in iso.countrymask.GROUPS.values() for x in g}]
+    if unknown:
+        raise HTTPException(422, f"unknown country codes {unknown}; use {', '.join(iso.countrymask.GROUPS)}")
+    if exclude and not iso.countrymask.SHP.exists():
+        raise HTTPException(503, "country polygons missing: run  python -m app.setup --only countries")
 
     def work(job: jobs.Job) -> dict:
         def progress(done: int, total: int) -> None:
             job.update(0.05 + 0.85 * done / max(total, 1), f"{done}/{total} table requests")
         job.update(0.02, "building grid")
         payload = iso.build_payload(eng.url, body.name, origin, region, max_hours=body.hours or None,
-                                    fill=fill, progress=progress, flights_on=body.flights)
+                                    fill=fill, progress=progress, flights_on=body.flights, exclude=exclude)
         job.update(0.95, "rendering")
         png = base64.b64decode(payload.pop("png"))
         job.png = png                               # served separately, not through JSON

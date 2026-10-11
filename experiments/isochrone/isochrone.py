@@ -40,6 +40,7 @@ import subprocess
 
 from scipy.ndimage import binary_dilation, distance_transform_edt, zoom
 
+import countrymask
 import flights
 
 HERE = Path(__file__).resolve().parent
@@ -59,7 +60,9 @@ REGIONS = {
     "national": ((-127, 24.3, -52, 55), 0.05, 0, 2),
     # + Alaska/Yukon (only reachable through Canada), Mexico and Central
     # America to the Darien Gap (the road ends in Panama)
-    "continental": ((-168, 7.0, -52, 71.5), 0.05, 0, 2),
+    # 72.5N / 45W reach Utqiagvik (71.3N) and Greenland's flown-to west-coast
+    # towns (Nuuk..Ilulissat, 64-69N); anything farther has no road we reach.
+    "continental": ((-168, 7.0, -45, 72.5), 0.05, 0, 2),
 }
 
 # Labeled destinations; only those inside the map's bounds are drawn.
@@ -161,14 +164,18 @@ def table(url: str, origin, pts):
     return durs, snaps
 
 
-def drive_hours(url, origin, lons, lats, progress=None) -> np.ndarray:
+def drive_hours(url, origin, lons, lats, progress=None, skip: np.ndarray | None = None) -> np.ndarray:
     """Effective hours from origin to every grid cell (NaN = no road nearby).
 
     progress(done, total) is called per batch when given (the app's job
-    progress bar); it may raise to cancel.
+    progress bar); it may raise to cancel. Cells where `skip` is True are
+    never requested and stay NaN (country exclusions).
     """
     lon_g, lat_g = np.meshgrid(lons, lats)
-    pts = list(zip(lon_g.ravel().tolist(), lat_g.ravel().tolist()))
+    keep = np.ones(lon_g.shape, dtype=bool) if skip is None else ~skip
+    pts = list(zip(lon_g[keep].tolist(), lat_g[keep].tolist()))
+    if not pts:
+        return np.full(lon_g.shape, np.nan, dtype=np.float32)
     batches = [pts[i:i + BATCH] for i in range(0, len(pts), BATCH)]
     print(f"{len(pts):,} points in {len(batches)} requests", flush=True)
     durs, snaps = [], []
@@ -183,7 +190,9 @@ def drive_hours(url, origin, lons, lats, progress=None) -> np.ndarray:
     durs, snaps = np.array(durs), np.array(snaps)
     hours = (durs + snaps / LOCAL_SPEED_MS) / 3600
     hours[snaps > MAX_SNAP_M] = math.nan
-    return hours.reshape(lat_g.shape).astype(np.float32)
+    out = np.full(lon_g.shape, np.nan, dtype=np.float32)
+    out[keep] = hours
+    return out
 
 
 def land_mask(grid_npz: Path, region: str, step: float) -> np.ndarray | None:
@@ -312,6 +321,13 @@ def overlaps(a, b) -> bool:
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
+def drive_to_airports(url, origin) -> dict[str, float]:
+    """Hours driving from the origin to each departure airport (flights.DRIVE_TO)."""
+    codes = list(flights.DRIVE_TO)
+    durs, snaps = table(url, origin, [flights.AIRPORTS[c][1:] for c in codes])
+    return {c: (d + s / LOCAL_SPEED_MS) / 3600 for c, d, s in zip(codes, durs, snaps)}
+
+
 def air_hours(url, origin, lons, lats, bbox) -> tuple[np.ndarray, list]:
     """Hours to island road networks: fly from the home airport, then drive.
 
@@ -319,9 +335,7 @@ def air_hours(url, origin, lons, lats, bbox) -> tuple[np.ndarray, list]:
     airport wins per cell (Big Island: Kona or Hilo). Cells outside every
     served island stay NaN.
     """
-    home = flights.AIRPORTS["BOS"]
-    d, s = table(url, origin, [home[1:]])
-    legs = flights.plan((d[0] + s[0] / LOCAL_SPEED_MS) / 3600)
+    legs = flights.plan(drive_to_airports(url, origin))
     lon_g, lat_g = np.meshgrid(lons, lats)
     out = np.full(lon_g.shape, np.nan, dtype=np.float32)
     used = []
@@ -354,16 +368,35 @@ def region_spec(region) -> tuple[tuple, float, str]:
     return tuple(bbox), step, f"custom_{w:.2f}_{s:.2f}_{e:.2f}_{n:.2f}"
 
 
-def compute_hours(url: str, name: str, origin, region, progress=None, flights_on: bool = True):
+def exclusion_mask(lons, lats, exclude, label: str, step: float) -> np.ndarray | None:
+    """Cells inside excluded countries (countrymask.py), cached per grid + country set."""
+    codes = countrymask.expand(exclude or [])
+    if not codes:
+        return None
+    CACHE.mkdir(exist_ok=True)
+    key = CACHE / f"exclude_{label}_{step}_{'-'.join(codes)}.npz"
+    if key.exists():
+        return np.load(key)["mask"]
+    mask = countrymask.country_mask(lons, lats, codes)
+    np.savez_compressed(key, mask=mask)
+    print(f"excluding {', '.join(codes)}: {mask.sum():,} of {mask.size:,} cells")
+    return mask
+
+
+def compute_hours(url: str, name: str, origin, region, progress=None, flights_on: bool = True,
+                  exclude=None):
     """Raw (unfilled) hours grid: driving, plus flights to islands. Cached.
 
     region: a REGIONS key, or (bbox, step) for a custom area.
+    exclude: country codes/groups (countrymask.GROUPS) whose cells are skipped.
     """
     bbox, step, label = region_spec(region)
     # the name becomes a cache filename: letters/digits/_/- only, no path parts
     safe = re.sub(r"[^a-z0-9_-]", "_", name.lower().replace(" ", "_")).strip("_") or "origin"
-    slug = f"{safe[:60]}_{label}"
+    codes = countrymask.expand(exclude or [])
+    slug = f"{safe[:60]}_{label}" + (f"_x{'-'.join(codes)}" if codes else "")
     lons, lats = grid(bbox, step)
+    skip = exclusion_mask(lons, lats, codes, label, step)
     CACHE.mkdir(exist_ok=True)
     key = (CACHE / f"{slug}_{step}.npz").resolve()
     assert key.parent == CACHE.resolve()
@@ -372,15 +405,19 @@ def compute_hours(url: str, name: str, origin, region, progress=None, flights_on
         print(f"cached grid: {key.name}")
     else:
         t0 = time.time()
-        hours = drive_hours(url, origin, lons, lats, progress=progress)
+        hours = drive_hours(url, origin, lons, lats, progress=progress, skip=skip)
         np.savez_compressed(key, hours=hours, lons=lons, lats=lats)
         print(f"grid done in {time.time() - t0:.0f}s")
-    if not flights_on:
-        return hours, lons, lats, step, key, []
-    air, legs = air_hours(url, origin, lons, lats, bbox)
-    if legs:
-        print("flights: " + ", ".join(f"{l.src}->{l.dst} ready {l.ready:.1f} h" for l in legs))
-    return np.fmin(hours, air), lons, lats, step, key, legs
+    if flights_on:
+        air, legs = air_hours(url, origin, lons, lats, bbox)
+        if legs:
+            print("flights: " + ", ".join(f"{l.src}->{l.dst} ready {l.ready:.1f} h" for l in legs))
+        hours = np.fmin(hours, air)
+    else:
+        legs = []
+    if skip is not None:
+        hours = np.where(skip, np.nan, hours).astype(np.float32)
+    return hours, lons, lats, step, key, legs
 
 
 def sample(hours: np.ndarray, lons, lats, lon: float, lat: float) -> float | None:
@@ -391,12 +428,12 @@ def sample(hours: np.ndarray, lons, lats, lon: float, lat: float) -> float | Non
 
 def build_payload(url: str, name: str, origin, region, max_hours: int | None = None,
                   upsample: int | None = None, fill: bool = True, progress=None,
-                  flights_on: bool = True) -> dict:
+                  flights_on: bool = True, exclude=None) -> dict:
     """Everything the map needs: banded PNG, bounds, legend colors, areas, cities.
 
     region: REGIONS key or (bbox, step). max_hours/upsample default from REGIONS
     (custom regions: auto hours, upsample 2). fill=False skips the Natural
-    Earth land fill (which shells out to Docker).
+    Earth land fill (which shells out to Docker). exclude: countries to skip.
     """
     bbox, step, label = region_spec(region)
     if isinstance(region, str):
@@ -407,11 +444,14 @@ def build_payload(url: str, name: str, origin, region, max_hours: int | None = N
     upsample = r_up if upsample is None else upsample
 
     hours, lons, lats, step, key, legs = compute_hours(url, name, origin, region, progress=progress,
-                                                       flights_on=flights_on)
+                                                       flights_on=flights_on, exclude=exclude)
     if fill:
         land = land_mask(key, label, step)
         if land is not None:
             hours = fill_land(hours, land, lats, step)
+            skip = exclusion_mask(lons, lats, exclude, label, step)
+            if skip is not None:            # the fill must not creep into excluded countries
+                hours = np.where(skip, np.nan, hours).astype(np.float32)
 
     if np.all(np.isnan(hours)):
         raise RuntimeError("no reachable cells: is the origin on the road network?")
@@ -429,6 +469,7 @@ def build_payload(url: str, name: str, origin, region, max_hours: int | None = N
         "name": name, "origin": list(origin), "png": png, "bounds": bounds,
         "colors": colors, "areas": areas, "cities": cities, "url": url,
         "hours": n, "dayHours": DAY_HOURS, "flights": flights.legs_json(legs),
+        "exclude": countrymask.expand(exclude or []),
     }
 
 
@@ -438,11 +479,13 @@ def main() -> None:
     ap.add_argument("--origin", default="-71.0589,42.3601")
     ap.add_argument("--name", default="Boston")
     ap.add_argument("--region", choices=REGIONS, default="regional")
+    ap.add_argument("--exclude", default="", help="skip countries, e.g. CA,MX or CAM (Central America)")
     args = ap.parse_args()
     origin = tuple(float(v) for v in args.origin.split(","))
-    slug = f"{args.name.lower().replace(' ', '_')}_{args.region}"
+    exclude = [c for c in args.exclude.split(",") if c.strip()]
+    slug = f"{args.name.lower().replace(' ', '_')}_{args.region}" + (f"_x{'-'.join(countrymask.expand(exclude))}" if exclude else "")
 
-    payload = build_payload(args.url, args.name, origin, args.region)
+    payload = build_payload(args.url, args.name, origin, args.region, exclude=exclude)
     n, cities = payload["hours"], payload["cities"]
     html = (HERE / "template.html").read_text(encoding="utf-8")
     OUT.mkdir(exist_ok=True)

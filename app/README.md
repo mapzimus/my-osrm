@@ -20,7 +20,7 @@ prefers `data/basemap/north-america.pmtiles` and falls back to the `-z10` file.
 |---|---|---|
 | Engines | pick which container every tool uses; health dots | `GET /api/engines` |
 | Route | click A, B, C…; drag markers; turn list; "Best order" (OSRM `/trip`) | `POST /api/route`, `/api/route/trip` |
-| Isochrone | drive-time bands from one point; preset regions or the current view; background job with progress | `POST /api/isochrone/jobs` |
+| Isochrone | drive-time bands from one point; preset regions or the current view; "skip" checkboxes leave whole countries out of the grid (US, Canada, Mexico, Central America); background job with progress | `POST /api/isochrone/jobs` |
 | Matrix | N×N drive times, sortable, CSV | `POST /api/matrix`, `/csv` |
 | Export | PNG snapshot (with attribution), GeoJSON of everything drawn, GPX of the route, copy link | `POST /api/export/gpx` |
 | Compare | same trip on every running engine, overlaid, with a time table | `POST /api/compare` |
@@ -53,7 +53,7 @@ with `ctx.api.follow(jobId, onProgress)`.
 | `tools/` | one Python router per tool |
 | `web/` | `index.html` (import map), `app.js` (boot), `map.js`, `layers.js`, `state.js`, `panel.js`, `points.js`, `tools/*.js` |
 | `web/vendor/` | gitignored; filled by `app.setup` (MANIFEST.json records versions) |
-| `setup/` | idempotent stages: `vendor`, `cli`, `assets`, `basemap`, `ferries`, `places` |
+| `setup/` | idempotent stages: `vendor`, `cli`, `assets`, `basemap`, `countries`, `ferries`, `places` |
 | `tests/` | pytest with a fake OSRM: `python -m pytest app/tests` |
 | `smoke.py` | against a real engine: `python app/smoke.py --url http://127.0.0.1:5002` |
 

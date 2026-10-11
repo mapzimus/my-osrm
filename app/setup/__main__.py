@@ -8,7 +8,7 @@ from pathlib import Path
 
 from app import config
 
-STAGES = ["vendor", "cli", "assets", "basemap", "ferries", "places"]
+STAGES = ["vendor", "cli", "assets", "basemap", "countries", "ferries", "places"]
 
 
 def main() -> int:
@@ -35,6 +35,8 @@ def main() -> int:
             from app.setup import assets; assets.run(scratch)
         elif stage == "basemap":
             from app.setup import basemap; basemap.run(scratch, maxzoom=args.maxzoom, dry_run=args.dry_run)
+        elif stage == "countries":
+            from app.setup import countries; countries.run(scratch)
         elif stage == "ferries":
             from app.setup import ferries; ferries.run(scratch)
         elif stage == "places":

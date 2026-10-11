@@ -21,6 +21,11 @@ export async function init(ctx) {
   const cancelBtn = btn("Cancel", () => job && ctx.api.cancel(job.id), "small");
   const legend = h("div");
   const cities = h("div");
+  const exclBoxes = (presets.countries || []).map((c) => h("label", { title: `skip grid points inside ${c.label}` },
+    h("input", { type: "checkbox", value: c.code, disabled: !presets.countries_ready, onChange: save }), ` ${c.label}`));
+  const excluded = () => exclBoxes.map((l) => l.firstChild).filter((cb) => cb.checked).map((cb) => cb.value);
+  const exclRow = row(h("label", {}, "skip"), ...exclBoxes,
+    presets.countries_ready ? null : h("span", { class: "help" }, "(run app.setup --only countries)"));
   const customRow = row(h("label", {}, "step°"), stepIn, h("span", { class: "help" }, "bbox = current map view"));
   customRow.hidden = true;
   regionSel.onchange = () => { customRow.hidden = regionSel.value !== "custom"; };
@@ -33,6 +38,7 @@ export async function init(ctx) {
     row(h("label", {}, "name"), nameIn, h("label", {}, "region"), regionSel),
     customRow,
     row(h("label", {}, "max hours"), hoursIn, h("label", {}, h("span", {}, fillCb, " land fill")), h("label", { title: "fly to Hawaii / Puerto Rico from BOS (experiment)" }, h("span", {}, flightsCb, " flights"))),
+    exclRow,
     row(runBtn, cancelBtn),
     bar, msg, legend, cities,
   );
@@ -48,13 +54,13 @@ export async function init(ctx) {
 
   function save() {
     if (!origin) return;
-    ctx.state.set([`${origin[0].toFixed(5)},${origin[1].toFixed(5)}`, regionSel.value, hoursIn.value || 0, encodeURIComponent(nameIn.value)].join("|"));
+    ctx.state.set([`${origin[0].toFixed(5)},${origin[1].toFixed(5)}`, regionSel.value, hoursIn.value || 0, encodeURIComponent(nameIn.value), excluded().join("+")].join("|"));
   }
 
   async function run() {
     if (!origin) return toast("Click the map to set an origin first", "bad");
     save();
-    const body = { engine: ctx.engines.current(), name: nameIn.value || "Origin", origin, hours: +hoursIn.value || null, fill: fillCb.checked, flights: flightsCb.checked };
+    const body = { engine: ctx.engines.current(), name: nameIn.value || "Origin", origin, hours: +hoursIn.value || null, fill: fillCb.checked, flights: flightsCb.checked, exclude: excluded() };
     if (regionSel.value === "custom") {
       const b = ctx.map.getBounds();
       body.bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
@@ -71,7 +77,7 @@ export async function init(ctx) {
 
   function show(res) {
     result = res;
-    msg.textContent = `${res.hours} hour bands · engine ${res.engine}`;
+    msg.textContent = `${res.hours} hour bands · engine ${res.engine}` + (res.exclude?.length ? ` · skipped ${res.exclude.join(", ")}` : "");
     const [[s, w], [n, e]] = res.bounds;          // Leaflet order from isochrone.py
     ctx.layers.setImage("isochrone", res.png_url, [[w, n], [e, n], [e, s], [w, s]], { opacity: 0.8 });
     const items = res.colors.map((c, i) => [h("span", { class: "sw", style: `background:${c}` }), `≤ ${i + 1} h`, h("span", { class: "a" }, `${Math.round(res.areas[i] / 1000).toLocaleString()}k km²`)]).flat();
@@ -85,12 +91,14 @@ export async function init(ctx) {
   ctx.onMapClick((lonlat) => setOrigin(lonlat));
   const saved = ctx.state.get();
   if (saved) {
-    const [o, region, hours, name] = saved.split("|");
-    const ll = o.split(",").map(Number);
-    if (ll.length === 2 && ll.every(Number.isFinite)) setOrigin(ll, decodeURIComponent(name || "Origin"));
+    const [o, region, hours, name, excl] = saved.split("|");
+    // restore the settings first: setOrigin() calls save(), which reads them back
+    for (const cb of exclBoxes.map((l) => l.firstChild)) cb.checked = (excl || "").split("+").includes(cb.value);
     if (region && [...regionSel.options].some((op) => op.value === region)) regionSel.value = region;
     hoursIn.value = hours || 0;
     customRow.hidden = regionSel.value !== "custom";
+    const ll = o.split(",").map(Number);
+    if (ll.length === 2 && ll.every(Number.isFinite)) setOrigin(ll, decodeURIComponent(name || "Origin"));
   }
 
   return {
