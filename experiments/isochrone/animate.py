@@ -34,7 +34,7 @@ INSET_XY = (-0.66, -0.20, -0.31, -0.52)            # left, top, right, bottom
 # Greenland inset: top right, over its own true position (open water once
 # Greenland itself is drawn in the inset instead of the main map).
 GREENLAND_XY = (0.37, 0.66, 0.62, 0.40)
-BIG_PLANES = {"HNL", "MIA", "BDA"}
+BIG_PLANES = {"SEA", "HNL", "MIA", "BDA"}
 TRAIL = (120, 128, 142)
 TRAIL_FADE = 1.5                                    # hours a trail lingers after landing
 # Video-only labels for places not in isochrone.CITIES (times read off the grid).

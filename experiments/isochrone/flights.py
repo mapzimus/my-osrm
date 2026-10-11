@@ -34,6 +34,7 @@ AIRPORTS = {
     "LIH": ("Lihue, Kauai", -159.3390, 21.9760),
     "SJU": ("San Juan", -66.0018, 18.4394),
     "MIA": ("Miami", -80.2906, 25.7959),
+    "SEA": ("Seattle", -122.3088, 47.4502),
     "BDA": ("Bermuda", -64.6787, 32.3640),
     # Caribbean (main airport per island; two or more on the big islands)
     "HAV": ("Havana", -82.4091, 22.9892),
@@ -135,7 +136,7 @@ SERVES.update({code: box for box, codes in CARIBBEAN.values() for code in codes}
 SERVES.update({code: town(code) for code in
                ("GOH", "SFJ", "JAV", "JHS", "OME", "BET", "BRW", "OTZ",
                 "YFB", "YVP", "YDP", "YRT", "YCB", "ADZ", "RNI")})
-SERVES.update({code: NOWHERE for code in ("BOS", "EWR", "MIA", "ANC", "YUL", "YYR",
+SERVES.update({code: NOWHERE for code in ("BOS", "EWR", "MIA", "SEA", "ANC", "YUL", "YYR",
                                           "YWG", "YEG", "MGA")})
 
 # Airports reached by driving from the origin: drive as far as roads go,
@@ -147,7 +148,10 @@ DRIVE_TO = ("BOS", "EWR", "ANC", "YUL", "YYR", "YWG", "YEG", "MGA")
 # the way most real trips from Boston to the small islands do. Bermuda is a
 # direct flight (it's due southeast; a Miami detour would make no sense).
 HUB = "MIA"
-ROUTES = [("BOS", "HNL"), ("BOS", "BDA"), ("BOS", HUB), (HUB, "SJU"),
+# Honolulu connects in Seattle: Hawaiian dropped its Boston nonstop and
+# Delta's returns only Dec 19, 2026 - Jan 3, 2027 (checked 2026-10-10);
+# this map models summer travel.
+ROUTES = [("BOS", "SEA"), ("SEA", "HNL"), ("BOS", "BDA"), ("BOS", HUB), (HUB, "SJU"),
           ("HNL", "OGG"), ("HNL", "KOA"), ("HNL", "ITO"), ("HNL", "LIH")]
 ROUTES += [(HUB, code) for _, codes in CARIBBEAN.values() for code in codes]
 # Greenland: drive to Newark, summer nonstop to Nuuk, Air Greenland hops.
