@@ -1,0 +1,41 @@
+{
+ "maplibre-gl": {
+  "version": "6.13.0",
+  "files": [
+   ".version",
+   "maplibre-gl-shared.mjs",
+   "maplibre-gl-worker.mjs",
+   "maplibre-gl.css",
+   "maplibre-gl.mjs"
+  ]
+ },
+ "pmtiles": {
+  "version": "4.5.0",
+  "files": [
+   ".version",
+   "index.js",
+   "pmtiles.js"
+  ]
+ },
+ "fflate": {
+  "version": "0.8.2",
+  "files": [
+   ".version",
+   "browser.js",
+   "index.mjs"
+  ]
+ },
+ "@protomaps/basemaps": {
+  "version": "5.7.2",
+  "files": [
+   ".version",
+   "index.js"
+  ]
+ },
+ "import_map": {
+  "maplibre-gl": "/vendor/maplibre-gl/maplibre-gl.mjs",
+  "pmtiles": "/vendor/pmtiles/esm/index.js",
+  "fflate": "/vendor/fflate/browser.js",
+  "@protomaps/basemaps": "/vendor/protomaps-basemaps/index.js"
+ }
+}

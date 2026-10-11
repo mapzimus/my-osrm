@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "my-osrm-app",
+      "runtimeExecutable": "C:/Users/mhowe/AppData/Local/Python/bin/python.exe",
+      "runtimeArgs": ["-m", "app", "--port", "8080"],
+      "port": 8080
+    }
+  ]
+}

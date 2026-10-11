@@ -9,3 +9,12 @@ logs/
 
 # Experiment caches (re-computable in seconds)
 experiments/*/cache/
+
+# Playwright MCP output
+.playwright-mcp/
+
+# app: vendored libs are fetched by app/setup (MANIFEST.json is the record)
+app/web/vendor/*
+!app/web/vendor/MANIFEST.json
+__pycache__/
+*.pyc

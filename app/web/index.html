@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>my-osrm</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/vendor/maplibre-gl/maplibre-gl.css">
+<link rel="stylesheet" href="/style.css">
+<script type="importmap">
+{
+  "imports": {
+    "maplibre-gl": "/vendor/maplibre-gl/maplibre-gl.mjs",
+    "pmtiles": "/vendor/pmtiles/esm/index.js",
+    "fflate": "/vendor/fflate/browser.js",
+    "@protomaps/basemaps": "/vendor/protomaps-basemaps/index.js"
+  }
+}
+</script>
+</head>
+<body>
+<div id="map"></div>
+<aside id="side">
+  <header id="top">
+    <div id="brand">my-osrm <span id="engine-dot" title="engine health"></span></div>
+    <div id="search-wrap">
+      <input id="search" type="search" placeholder="Search a place or lat, lon  (/)" autocomplete="off" spellcheck="false">
+      <ul id="search-results" hidden></ul>
+    </div>
+    <button id="flavor" title="light / dark basemap">◐</button>
+  </header>
+  <nav id="tabs"></nav>
+  <main id="panels"></main>
+  <footer id="foot">
+    <span id="status"></span>
+    <span id="attrib">© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://protomaps.com">Protomaps</a> · OSRM</span>
+  </footer>
+</aside>
+<div id="toasts"></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

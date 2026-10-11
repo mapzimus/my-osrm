@@ -160,8 +160,12 @@ def table(url: str, origin, pts):
     return durs, snaps
 
 
-def drive_hours(url, origin, lons, lats) -> np.ndarray:
-    """Effective hours from origin to every grid cell (NaN = no road nearby)."""
+def drive_hours(url, origin, lons, lats, progress=None) -> np.ndarray:
+    """Effective hours from origin to every grid cell (NaN = no road nearby).
+
+    progress(done, total) is called per batch when given (the app's job
+    progress bar); it may raise to cancel.
+    """
     lon_g, lat_g = np.meshgrid(lons, lats)
     pts = list(zip(lon_g.ravel().tolist(), lat_g.ravel().tolist()))
     batches = [pts[i:i + BATCH] for i in range(0, len(pts), BATCH)]
@@ -171,7 +175,9 @@ def drive_hours(url, origin, lons, lats) -> np.ndarray:
         for i, (d, s) in enumerate(pool.map(lambda b: table(url, origin, b), batches)):
             durs += d
             snaps += s
-            if i % 500 == 0:
+            if progress is not None:
+                progress(i + 1, len(batches))
+            elif i % 500 == 0:
                 print(f"  {i}/{len(batches)}", flush=True)
     durs, snaps = np.array(durs), np.array(snaps)
     hours = (durs + snaps / LOCAL_SPEED_MS) / 3600
@@ -337,10 +343,23 @@ def air_hours(url, origin, lons, lats, bbox) -> tuple[np.ndarray, list]:
     return out, used
 
 
-def compute_hours(url: str, name: str, origin, region: str):
-    """Raw (unfilled) hours grid: driving, plus flights to islands. Cached."""
-    bbox, step, _, _ = REGIONS[region]
-    slug = f"{name.lower().replace(' ', '_')}_{region}"
+def region_spec(region) -> tuple[tuple, float, str]:
+    """(bbox, step, label) for a REGIONS key or a custom (bbox, step) tuple."""
+    if isinstance(region, str):
+        bbox, step, _, _ = REGIONS[region]
+        return bbox, step, region
+    bbox, step = region
+    w, s, e, n = bbox
+    return tuple(bbox), step, f"custom_{w:.2f}_{s:.2f}_{e:.2f}_{n:.2f}"
+
+
+def compute_hours(url: str, name: str, origin, region, progress=None, flights_on: bool = True):
+    """Raw (unfilled) hours grid: driving, plus flights to islands. Cached.
+
+    region: a REGIONS key, or (bbox, step) for a custom area.
+    """
+    bbox, step, label = region_spec(region)
+    slug = f"{name.lower().replace(' ', '_')}_{label}"
     lons, lats = grid(bbox, step)
     CACHE.mkdir(exist_ok=True)
     key = CACHE / f"{slug}_{step}.npz"
@@ -349,9 +368,11 @@ def compute_hours(url: str, name: str, origin, region: str):
         print(f"cached grid: {key.name}")
     else:
         t0 = time.time()
-        hours = drive_hours(url, origin, lons, lats)
+        hours = drive_hours(url, origin, lons, lats, progress=progress)
         np.savez_compressed(key, hours=hours, lons=lons, lats=lats)
         print(f"grid done in {time.time() - t0:.0f}s")
+    if not flights_on:
+        return hours, lons, lats, step, key, []
     air, legs = air_hours(url, origin, lons, lats, bbox)
     if legs:
         print("flights: " + ", ".join(f"{l.src}->{l.dst} ready {l.ready:.1f} h" for l in legs))
@@ -364,6 +385,49 @@ def sample(hours: np.ndarray, lons, lats, lon: float, lat: float) -> float | Non
     return None if np.isnan(v) else round(float(v), 2)
 
 
+def build_payload(url: str, name: str, origin, region, max_hours: int | None = None,
+                  upsample: int | None = None, fill: bool = True, progress=None,
+                  flights_on: bool = True) -> dict:
+    """Everything the map needs: banded PNG, bounds, legend colors, areas, cities.
+
+    region: REGIONS key or (bbox, step). max_hours/upsample default from REGIONS
+    (custom regions: auto hours, upsample 2). fill=False skips the Natural
+    Earth land fill (which shells out to Docker).
+    """
+    bbox, step, label = region_spec(region)
+    if isinstance(region, str):
+        _, _, r_hours, r_up = REGIONS[region]
+    else:
+        r_hours, r_up = 0, 2
+    max_hours = r_hours if max_hours is None else max_hours
+    upsample = r_up if upsample is None else upsample
+
+    hours, lons, lats, step, key, legs = compute_hours(url, name, origin, region, progress=progress,
+                                                       flights_on=flights_on)
+    if fill:
+        land = land_mask(key, label, step)
+        if land is not None:
+            hours = fill_land(hours, land, lats, step)
+
+    if np.all(np.isnan(hours)):
+        raise RuntimeError("no reachable cells: is the origin on the road network?")
+    n = max_hours or int(math.ceil(np.nanmax(hours)))
+    png, colors = band_png(hours, n, upsample)
+    areas = band_areas(hours, lats, step, n)
+    cities = city_times(url, origin, bbox)
+    for c in cities:                 # islands: no road from the origin, use the grid
+        if c["hours"] is None:
+            c["hours"] = sample(hours, lons, lats, c["lon"], c["lat"])
+    half = step / 2
+    bounds = [[float(lats[-1]) - half, float(lons[0]) - half],
+              [float(lats[0]) + half, float(lons[-1]) + half]]
+    return {
+        "name": name, "origin": list(origin), "png": png, "bounds": bounds,
+        "colors": colors, "areas": areas, "cities": cities, "url": url,
+        "hours": n, "dayHours": DAY_HOURS, "flights": flights.legs_json(legs),
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="http://127.0.0.1:5002")
@@ -372,31 +436,11 @@ def main() -> None:
     ap.add_argument("--region", choices=REGIONS, default="regional")
     args = ap.parse_args()
     origin = tuple(float(v) for v in args.origin.split(","))
-    bbox, step, max_hours, upsample = REGIONS[args.region]
     slug = f"{args.name.lower().replace(' ', '_')}_{args.region}"
 
-    hours, lons, lats, step, key, legs = compute_hours(args.url, args.name, origin, args.region)
-    land = land_mask(key, args.region, step)
-    if land is not None:
-        hours = fill_land(hours, land, lats, step)
-
-    n = max_hours or int(math.ceil(np.nanmax(hours)))
-    png, colors = band_png(hours, n, upsample)
-    areas = band_areas(hours, lats, step, n)
-    cities = city_times(args.url, origin, bbox)
-    for c in cities:                 # islands: no road from the origin, use the grid
-        if c["hours"] is None:
-            c["hours"] = sample(hours, lons, lats, c["lon"], c["lat"])
-    half = step / 2
-    bounds = [[float(lats[-1]) - half, float(lons[0]) - half],
-              [float(lats[0]) + half, float(lons[-1]) + half]]
-
+    payload = build_payload(args.url, args.name, origin, args.region)
+    n, cities = payload["hours"], payload["cities"]
     html = (HERE / "template.html").read_text(encoding="utf-8")
-    payload = {
-        "name": args.name, "origin": origin, "png": png, "bounds": bounds,
-        "colors": colors, "areas": areas, "cities": cities, "url": args.url,
-        "hours": n, "dayHours": DAY_HOURS, "flights": flights.legs_json(legs),
-    }
     OUT.mkdir(exist_ok=True)
     dest = OUT / f"isochrone_{slug}.html"
     dest.write_text(html.replace("/*__DATA__*/null", json.dumps(payload)), encoding="utf-8")
