@@ -28,7 +28,8 @@ def create_schema(con: sqlite3.Connection) -> None:
 
 
 def insert_rows(con: sqlite3.Connection, rows) -> None:
-    con.executemany("INSERT INTO places VALUES (?,?,?,?,?,?,?,?)", rows)
+    # extracts overlap at borders (Mexico / Central America), so a node can appear twice
+    con.executemany("INSERT OR IGNORE INTO places VALUES (?,?,?,?,?,?,?,?)", rows)
     con.execute("INSERT INTO places_fts(places_fts) VALUES ('rebuild')")
 
 
