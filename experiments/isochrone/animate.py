@@ -23,7 +23,14 @@ from scipy.ndimage import binary_dilation, distance_transform_edt, map_coordinat
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import flights  # noqa: E402
 import isochrone as iso  # noqa: E402  (reuse grid, palette, land mask, cities)
+
+URL = "http://127.0.0.1:5002"
+ORIGIN = (-71.0589, 42.3601)
+# Where the Hawaii inset sits, in main-map projected units: the empty Pacific
+# west of Baja (Hawaii's true position would widen the whole map ~25%).
+INSET_XY = (-0.66, -0.20, -0.31, -0.52)            # left, top, right, bottom
 
 FONTS = Path("C:/Windows/Fonts")
 FPS = 30
@@ -42,7 +49,7 @@ VIDEO_CITIES = [
     "Atlanta", "Miami", "Dallas", "Winnipeg", "Denver", "Calgary",
     "Seattle", "San Francisco", "Los Angeles", "Whitehorse", "Anchorage", "Prudhoe Bay",
     "Monterrey", "Mexico City", "Cancún", "Cabo San Lucas", "Guatemala City",
-    "Panama City",
+    "Panama City", "Honolulu", "Hilo", "San Juan",
 ]
 LEFT_LABELS = {"Seattle", "San Francisco", "Los Angeles", "Anchorage", "Key West",
                "Chicago", "St. John's NL"}
@@ -81,25 +88,28 @@ def font(name: str, size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(str(FONTS / name), size)
 
 
-def load_field(name: str):
-    """Hours everywhere (nearest-road filled) + where it's valid land."""
-    bbox, step, _, _ = iso.REGIONS["continental"]
-    slug = f"{name.lower().replace(' ', '_')}_continental"
-    grid = np.load(iso.CACHE / f"{slug}_{step}.npz")
-    hours, lons, lats = grid["hours"], grid["lons"], grid["lats"]
-    land = iso.land_mask(iso.CACHE / f"{slug}_{step}.npz", "continental", step)
+def load_field(name: str, origin):
+    """Hours everywhere (driving + flights, nearest-road filled) + valid land."""
+    hours, lons, lats, step, key, legs = iso.compute_hours(URL, name, origin, "continental")
+    land = iso.land_mask(key, "continental", step)
     reachable = ~np.isnan(hours)
     dist, (iy, ix) = distance_transform_edt(~reachable, return_indices=True)
     gap_km = dist * 111.32 * step * np.cos(np.radians(lats))[:, None]
     filled = hours[iy, ix] + gap_km / (iso.LOCAL_SPEED_MS * 3.6)
     valid = land & (gap_km <= iso.FILL_KM)
-    return filled.astype(np.float32), valid, land, lons, lats, step
+    return filled.astype(np.float32), valid, land, lons, lats, step, legs
 
 
-def rasterize(proj, filled, valid, land, lons, lats, step, box):
-    """Sample the lon/lat grid onto the projected map box (at SS x)."""
+def rasterize(proj, filled, valid, land, lons, lats, step, box, keep):
+    """Sample the lon/lat grid onto the projected map box (at SS x).
+
+    `keep` selects which grid cells belong in this box (the main map drops
+    Hawaii, the inset keeps only Hawaii); the box is fitted to their extent.
+    """
     x0, y0, x1, y1 = box
     w, h = (x1 - x0) * SS, (y1 - y0) * SS
+    valid = valid & keep
+    land = land & keep
     # Fit the extent of valid land into the box, preserving aspect.
     lg, tg = np.meshgrid(lons, lats)
     px, py = proj.forward(lg[valid], tg[valid])
@@ -119,11 +129,70 @@ def rasterize(proj, filled, valid, land, lons, lats, step, box):
     V &= inside
     Lm &= inside
 
-    def to_px(lon_, lat_):
-        x_, y_ = proj.forward(np.array(lon_), np.array(lat_))
+    def xy_px(x_, y_):
+        """Projected coordinates -> canvas pixels."""
         return (x0 + (w / 2 + (x_ - cx) * scale) / SS, y0 + (h / 2 - (y_ - cy) * scale) / SS)
 
-    return np.where(V, H, np.inf).astype(np.float32), Lm, to_px
+    def to_px(lon_, lat_):
+        return xy_px(*proj.forward(np.array(lon_), np.array(lat_)))
+
+    return np.where(V, H, np.inf).astype(np.float32), Lm, to_px, xy_px
+
+
+class Layer:
+    """One rasterized map (main or inset) that repaints itself for hour t."""
+
+    def __init__(self, H, Lm, pal, n_bands):
+        self.H = H
+        band = np.where(np.isfinite(H), np.ceil(np.maximum(H, 1e-3)), 0).astype(np.int32)
+        band = np.clip(band, 0, n_bands)
+        day = np.where(band > 0, (band - 1) // iso.DAY_HOURS, -1)
+        edge = np.zeros(band.shape, dtype=bool)
+        edge[:, 1:] |= (day[:, 1:] != day[:, :-1]) & (day[:, 1:] >= 0) & (day[:, :-1] >= 0)
+        edge[1:, :] |= (day[1:, :] != day[:-1, :]) & (day[1:, :] >= 0) & (day[:-1, :] >= 0)
+        self.edge_t = np.where(binary_dilation(edge, iterations=SS), H, np.inf)
+        self.base = np.empty((*H.shape, 3), dtype=np.float32)
+        self.base[:] = WATER
+        self.base[Lm] = LAND
+        self.reached_rgb = pal[band]
+
+    def paint(self, t: float) -> Image.Image:
+        rgb = self.base.copy()
+        reached = self.H <= t
+        rgb[reached] = self.reached_rgb[reached]
+        front = reached & (self.H > t - 0.9)          # glowing leading edge
+        glow = (1 - (t - self.H[front]) / 0.9)[:, None] * 0.75
+        rgb[front] = rgb[front] * (1 - glow) + 255 * glow
+        rgb[self.edge_t <= t] = WATER
+        return Image.fromarray(rgb.astype(np.uint8)).reduce(SS)
+
+
+# Airplane silhouette, nose toward +x, in ~pixels; mirrored for the other half.
+_HALF = [(13, 0), (10, 1.4), (3, 1.7), (-2, 8.5), (-5, 8.5), (-3, 1.7),
+         (-8, 1.5), (-10.5, 4.5), (-12.5, 4.5), (-11.5, 0)]
+PLANE = _HALF + [(x, -y) for x, y in reversed(_HALF[1:-1])]
+
+
+def draw_plane(d: ImageDraw.ImageDraw, x: float, y: float, angle: float, scale: float = 1.4):
+    c, s = math.cos(angle), math.sin(angle)
+    pts = [(x + scale * (px * c - py * s), y + scale * (px * s + py * c)) for px, py in PLANE]
+    d.polygon(pts, fill=INK, outline=tuple(int(v) for v in WATER))
+
+
+def arc(p0, p1, lift: float = 0.22):
+    """Quadratic curve between screen points, bowed 'up' like a flight path."""
+    (ax, ay), (bx, by) = p0, p1
+    mx, my = (ax + bx) / 2, (ay + by) / 2
+    dist = math.hypot(bx - ax, by - ay)
+    ctrl = (mx, my - lift * dist)
+
+    def at(f: float):
+        x = (1 - f) ** 2 * ax + 2 * (1 - f) * f * ctrl[0] + f * f * bx
+        y = (1 - f) ** 2 * ay + 2 * (1 - f) * f * ctrl[1] + f * f * by
+        dx = 2 * (1 - f) * (ctrl[0] - ax) + 2 * f * (bx - ctrl[0])
+        dy = 2 * (1 - f) * (ctrl[1] - ay) + 2 * f * (by - ctrl[1])
+        return x, y, math.atan2(dy, dx)
+    return at
 
 
 def frame_hours(n_frames: int, t_end: float) -> list[float]:
@@ -138,10 +207,22 @@ def main() -> None:
     args = ap.parse_args()
     (W, Hc), box, title_y = FORMATS[args.format]
 
-    filled, valid, land, lons, lats, step = load_field(args.name)
-    proj = Albers()
-    H, Lm, to_px = rasterize(proj, filled, valid, land, lons, lats, step, box)
-    t_end = float(np.ceil(H[np.isfinite(H)].max()))
+    filled, valid, land, lons, lats, step, legs = load_field(args.name, ORIGIN)
+    lon_g, lat_g = np.meshgrid(lons, lats)
+    hw = flights.HAWAII
+    in_hawaii = (lon_g >= hw[0]) & (lon_g <= hw[2]) & (lat_g >= hw[1]) & (lat_g <= hw[3])
+
+    H, Lm, to_px, xy_px = rasterize(Albers(), filled, valid, land, lons, lats, step, box,
+                                    keep=~in_hawaii)
+    ix0, iy0 = (int(v) for v in xy_px(INSET_XY[0], INSET_XY[1]))
+    ix1, iy1 = (int(v) for v in xy_px(INSET_XY[2], INSET_XY[3]))
+    inset_box = (ix0, iy0, ix1, iy1)
+    Hi, Lmi, to_px_i, _ = rasterize(Albers(lon0=-157.3, lat0=20.5, lat1=19.0, lat2=22.0),
+                                    filled, valid, land, lons, lats, step, inset_box,
+                                    keep=in_hawaii)
+
+    finite = np.concatenate([H[np.isfinite(H)], Hi[np.isfinite(Hi)]])
+    t_end = float(np.ceil(finite.max()))
     n_bands = int(t_end)
     pal = iso.palette_for(n_bands)[:, :3].astype(np.float32)
     days = math.ceil(n_bands / iso.DAY_HOURS)
@@ -149,32 +230,31 @@ def main() -> None:
     # stripes turn into a zebra texture at this scale; day lines carry it.
     for b in range(1, n_bands + 1):
         pal[b] = pal[(b - 1) // iso.DAY_HOURS * iso.DAY_HOURS + 1]
+    main_layer, inset_layer = Layer(H, Lm, pal, n_bands), Layer(Hi, Lmi, pal, n_bands)
 
-    band = np.where(np.isfinite(H), np.ceil(np.maximum(H, 1e-3)), 0).astype(np.int32)
-    band = np.clip(band, 0, n_bands)
-    day = np.where(band > 0, (band - 1) // iso.DAY_HOURS, -1)
-    day_edge = np.zeros(band.shape, dtype=bool)
-    day_edge[:, 1:] |= (day[:, 1:] != day[:, :-1]) & (day[:, 1:] >= 0) & (day[:, :-1] >= 0)
-    day_edge[1:, :] |= (day[1:, :] != day[:-1, :]) & (day[1:, :] >= 0) & (day[:-1, :] >= 0)
-    day_edge = binary_dilation(day_edge, iterations=SS)
-    edge_t = np.where(day_edge, H, np.inf)       # a day line appears once reached
+    def place(lon, lat):
+        """Canvas position, routing Hawaiian points into the inset."""
+        if hw[0] <= lon <= hw[2] and hw[1] <= lat <= hw[3]:
+            return tuple(float(v) for v in to_px_i(lon, lat))
+        return tuple(float(v) for v in to_px(lon, lat))
 
     x0, y0, x1, y1 = box
-    base = np.empty((*H.shape, 3), dtype=np.float32)
-    base[:] = WATER
-    base[Lm] = LAND
-    reached_rgb = pal[band]
-
-    origin = (-71.0589, 42.3601)
-    cities = {c["name"]: c for c in iso.city_times(
-        "http://127.0.0.1:5002", origin, iso.REGIONS["continental"][0])}
+    origin = ORIGIN
+    reach = np.where(valid, filled, np.nan)
+    cities = {c["name"]: c for c in iso.city_times(URL, origin, iso.REGIONS["continental"][0])}
     labels = []
     for nm in VIDEO_CITIES:
         c = cities.get(nm)
-        if c and c["hours"] is not None:
-            px, py = to_px(c["lon"], c["lat"])
-            labels.append((c["hours"], nm, float(px), float(py)))
+        if not c:
+            continue
+        hrs = c["hours"] if c["hours"] is not None else iso.sample(reach, lons, lats, c["lon"], c["lat"])
+        if hrs is not None:
+            labels.append((hrs, nm, *place(c["lon"], c["lat"])))
     ox, oy = (float(v) for v in to_px(*origin))
+
+    # Flight paths on screen: bowed arcs between the two airports' positions.
+    paths = [(leg, arc(place(*flights.AIRPORTS[leg.src][1:]), place(*flights.AIRPORTS[leg.dst][1:]),
+                       lift=0.22 if leg.src == "BOS" else 0.35)) for leg in legs]
 
     f_title, f_sub = font("segoeuib.ttf", 46), font("segoeui.ttf", 26)
     f_label, f_small = font("segoeuib.ttf", 21), font("segoeui.ttf", 19)
@@ -193,23 +273,28 @@ def main() -> None:
     timeline = frame_hours(WAVE_SECONDS * FPS, t_end)
     timeline += [t_end] * int(HOLD_SECONDS * FPS)
     for i, t in enumerate(timeline):
-        rgb = base.copy()
-        reached = H <= t
-        rgb[reached] = reached_rgb[reached]
-        front = reached & (H > t - 0.9)            # glowing leading edge
-        glow = (1 - (t - H[front]) / 0.9)[:, None] * 0.75
-        rgb[front] = rgb[front] * (1 - glow) + 255 * glow
-        rgb[edge_t <= t] = WATER
-        img = Image.fromarray(rgb.astype(np.uint8)).reduce(SS)
-
         canvas = Image.new("RGB", (W, Hc), tuple(int(v) for v in WATER))
-        canvas.paste(img, (x0, y0))
+        canvas.paste(main_layer.paint(t), (x0, y0))
+        canvas.paste(inset_layer.paint(t), (ix0, iy0))
         d = ImageDraw.Draw(canvas)
+        d.rectangle(inset_box, outline=(70, 78, 92), width=1)
+        d.text((ix0 + 8, iy0 + 6), "Hawaii", font=f_small, fill=MUTED)
         d.text((40, title_y), f"How far can you drive from {args.name}?", font=f_title, fill=INK)
         d.text((42, title_y + 64),
-               f"Drive time from {'Boston City Hall' if args.name == 'Boston' else args.name}"
-               " to every road in the US, Canada and Mexico",
+               f"Drive time from {'Boston City Hall' if args.name == 'Boston' else args.name}."
+               " Islands: fly from Logan, then drive.",
                font=f_sub, fill=MUTED)
+
+        # Flights: dashed route once departed, the plane while airborne.
+        for leg, at in paths:
+            if t < leg.depart:
+                continue
+            pts = [at(k / 40)[:2] for k in range(41)]
+            for k in range(0, 40, 2):
+                d.line([pts[k], pts[k + 1]], fill=(120, 128, 142), width=2)
+            if t <= leg.arrive:
+                x, y, ang = at((t - leg.depart) / (leg.arrive - leg.depart))
+                draw_plane(d, x, y, ang, 1.5 if leg.src == "BOS" else 1.0)
 
         # Origin: pulsing dot.
         pulse = 7 + 4 * (0.5 + 0.5 * math.sin(i / FPS * 2 * math.pi * 1.2))
@@ -248,7 +333,8 @@ def main() -> None:
                         fill=col if done else (40, 46, 58))
         mx = bar_x0 + (bar_x1 - bar_x0) * min(t / (days * iso.DAY_HOURS), 1)
         d.polygon([(mx - 8, bar_y - 12), (mx + 8, bar_y - 12), (mx, bar_y - 2)], fill=INK)
-        d.text((40, bar_y + 28), "A day is 8 hours of driving. No traffic, no stops, ferries count.",
+        d.text((40, bar_y + 28),
+               "A day is 8 hours of driving. No traffic or stops; ferries, borders and flights count.",
                font=f_small, fill=MUTED)
         d.text((40, bar_y + 60),
                "Routed with OSRM on my own server. Map data © OpenStreetMap contributors, Natural Earth.",

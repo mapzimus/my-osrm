@@ -65,7 +65,7 @@
 <div class="panel">
   <button id="toggle" aria-label="Collapse legend" title="Collapse legend">–</button>
   <h1 id="title"></h1>
-  <div class="sub">Driving time by car. US + Canada roads, ferries included.</div>
+  <div class="sub">Driving time by car, ferries included. Hawaii and Puerto Rico: fly, then drive.</div>
   <div class="legend" id="legend"></div>
   <div id="hover">Hover the map for drive time.</div>
   <div id="route">Click anywhere to route there.</div>
@@ -179,6 +179,14 @@ const syncLabels = () => {
 };
 map.on("zoomend", syncLabels);
 syncLabels();
+
+// Flights to islands with no road from the origin (dashed great circles).
+for (const f of D.flights || []) {
+  const line = L.polyline(f.path.map(([lon, lat]) => [lat, lon]),
+    { color: "#1d2330", weight: 1.5, dashArray: "6 6", opacity: 0.8 }).addTo(map);
+  line.bindTooltip(`${f.src} → ${f.dst}: wheels up ${f.depart.toFixed(1)} h, ` +
+    `driving from ${f.ready.toFixed(1)} h`, { sticky: true });
+}
 
 // Live routing: works while the local OSRM engine is running.
 let routeLayer = null;

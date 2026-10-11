@@ -39,6 +39,8 @@ import subprocess
 
 from scipy.ndimage import binary_dilation, distance_transform_edt, zoom
 
+import flights
+
 HERE = Path(__file__).resolve().parent
 CACHE = HERE / "cache"
 OUT = HERE / "out"
@@ -103,6 +105,12 @@ CITIES = {
     "Guatemala City": (-90.5069, 14.6349), "San Salvador": (-89.2182, 13.6929),
     "Managua": (-86.2514, 12.1150), "San José CR": (-84.0907, 9.9281),
     "Panama City": (-79.5199, 8.9824),
+    # Islands reached by plane (flights.py), times sampled from the grid
+    "Honolulu": (-157.8583, 21.3069), "Kahului": (-156.4729, 20.8893),
+    "Hilo": (-155.0868, 19.7241), "Kailua-Kona": (-155.9969, 19.6400),
+    "Lihue": (-159.3711, 21.9811), "Hana": (-155.9898, 20.7575),
+    "San Juan": (-66.1057, 18.4655), "Ponce": (-66.6141, 18.0111),
+    "Vieques": (-65.4434, 18.1494),
 }
 
 
@@ -114,6 +122,7 @@ MAJOR = {
     "San Francisco", "Seattle", "Whitehorse", "Anchorage", "Fairbanks",
     "Prudhoe Bay", "Yellowknife", "Mexico City", "Monterrey", "Cancún",
     "Cabo San Lucas", "Guatemala City", "San José CR", "Panama City",
+    "Honolulu", "San Juan",
 }
 
 
@@ -292,6 +301,69 @@ def city_times(url, origin, bbox) -> list[dict]:
     ]
 
 
+def overlaps(a, b) -> bool:
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+
+def air_hours(url, origin, lons, lats, bbox) -> tuple[np.ndarray, list]:
+    """Hours to island road networks: fly from the home airport, then drive.
+
+    Each arrival airport drives out over its island's cells; the fastest
+    airport wins per cell (Big Island: Kona or Hilo). Cells outside every
+    served island stay NaN.
+    """
+    home = flights.AIRPORTS["BOS"]
+    d, s = table(url, origin, [home[1:]])
+    legs = flights.plan((d[0] + s[0] / LOCAL_SPEED_MS) / 3600)
+    lon_g, lat_g = np.meshgrid(lons, lats)
+    out = np.full(lon_g.shape, np.nan, dtype=np.float32)
+    used = []
+    for leg in legs:
+        isle = flights.SERVES[leg.dst]
+        if not overlaps(isle, bbox):
+            continue
+        used.append(leg)
+        cells = (lon_g >= isle[0]) & (lon_g <= isle[2]) & (lat_g >= isle[1]) & (lat_g <= isle[3])
+        pts = list(zip(lon_g[cells].tolist(), lat_g[cells].tolist()))
+        durs, snaps = [], []
+        for i in range(0, len(pts), BATCH):
+            dd, ss = table(url, flights.AIRPORTS[leg.dst][1:], pts[i:i + BATCH])
+            durs += dd
+            snaps += ss
+        durs, snaps = np.array(durs), np.array(snaps)
+        h = leg.ready + (durs + snaps / LOCAL_SPEED_MS) / 3600
+        h[snaps > MAX_SNAP_M] = np.nan
+        out[cells] = np.fmin(out[cells], h)
+    return out, used
+
+
+def compute_hours(url: str, name: str, origin, region: str):
+    """Raw (unfilled) hours grid: driving, plus flights to islands. Cached."""
+    bbox, step, _, _ = REGIONS[region]
+    slug = f"{name.lower().replace(' ', '_')}_{region}"
+    lons, lats = grid(bbox, step)
+    CACHE.mkdir(exist_ok=True)
+    key = CACHE / f"{slug}_{step}.npz"
+    if key.exists():
+        hours = np.load(key)["hours"]
+        print(f"cached grid: {key.name}")
+    else:
+        t0 = time.time()
+        hours = drive_hours(url, origin, lons, lats)
+        np.savez_compressed(key, hours=hours, lons=lons, lats=lats)
+        print(f"grid done in {time.time() - t0:.0f}s")
+    air, legs = air_hours(url, origin, lons, lats, bbox)
+    if legs:
+        print("flights: " + ", ".join(f"{l.src}->{l.dst} ready {l.ready:.1f} h" for l in legs))
+    return np.fmin(hours, air), lons, lats, step, key, legs
+
+
+def sample(hours: np.ndarray, lons, lats, lon: float, lat: float) -> float | None:
+    """Grid value at the cell nearest a point (for island cities)."""
+    v = hours[int(np.abs(lats - lat).argmin()), int(np.abs(lons - lon).argmin())]
+    return None if np.isnan(v) else round(float(v), 2)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="http://127.0.0.1:5002")
@@ -303,18 +375,7 @@ def main() -> None:
     bbox, step, max_hours, upsample = REGIONS[args.region]
     slug = f"{args.name.lower().replace(' ', '_')}_{args.region}"
 
-    lons, lats = grid(bbox, step)
-    CACHE.mkdir(exist_ok=True)
-    key = CACHE / f"{slug}_{step}.npz"
-    if key.exists():
-        hours = np.load(key)["hours"]
-        print(f"cached grid: {key.name}")
-    else:
-        t0 = time.time()
-        hours = drive_hours(args.url, origin, lons, lats)
-        np.savez_compressed(key, hours=hours, lons=lons, lats=lats)
-        print(f"grid done in {time.time() - t0:.0f}s")
-
+    hours, lons, lats, step, key, legs = compute_hours(args.url, args.name, origin, args.region)
     land = land_mask(key, args.region, step)
     if land is not None:
         hours = fill_land(hours, land, lats, step)
@@ -323,6 +384,9 @@ def main() -> None:
     png, colors = band_png(hours, n, upsample)
     areas = band_areas(hours, lats, step, n)
     cities = city_times(args.url, origin, bbox)
+    for c in cities:                 # islands: no road from the origin, use the grid
+        if c["hours"] is None:
+            c["hours"] = sample(hours, lons, lats, c["lon"], c["lat"])
     half = step / 2
     bounds = [[float(lats[-1]) - half, float(lons[0]) - half],
               [float(lats[0]) + half, float(lons[-1]) + half]]
@@ -331,7 +395,7 @@ def main() -> None:
     payload = {
         "name": args.name, "origin": origin, "png": png, "bounds": bounds,
         "colors": colors, "areas": areas, "cities": cities, "url": args.url,
-        "hours": n, "dayHours": DAY_HOURS,
+        "hours": n, "dayHours": DAY_HOURS, "flights": flights.legs_json(legs),
     }
     OUT.mkdir(exist_ok=True)
     dest = OUT / f"isochrone_{slug}.html"

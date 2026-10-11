@@ -41,6 +41,8 @@ COUNTRIES = {
     "ca": ("canada-latest.osm.pbf", "osrm-major-na/canada-major.osm.pbf"),
     "mx": ("mexico-latest.osm.pbf", "build/mx/mexico-major.osm.pbf"),
     "cam": ("central-america-latest.osm.pbf", "build/cam/central-america-major.osm.pbf"),
+    # Not part of Geofabrik's US extract; island network (Vieques/Culebra car ferries).
+    "pr": ("puerto-rico-latest.osm.pbf", "build/pr/puerto-rico-major.osm.pbf"),
 }
 MAJOR_FILTER = (
     "w/highway=motorway,trunk,primary,secondary,tertiary,"
@@ -67,11 +69,16 @@ def docker(image: str, *args: str) -> None:
 
 
 def stage(sentinel: Path, label: str, image: str, *args: str) -> None:
-    if sentinel.exists():
-        print(f"[skip] {label}: {sentinel.name} exists")
+    # A stage counts as done only once its .done marker exists, written after
+    # the command succeeds. An interrupted stage can leave a truncated output
+    # behind; without the marker it re-runs instead of being trusted.
+    done = sentinel.with_name(sentinel.name + ".done")
+    if sentinel.exists() and done.exists():
+        print(f"[skip] {label}: {sentinel.name} done")
         return
     print(f"[run]  {label}")
     docker(image, *args)
+    done.touch()
 
 
 def main() -> None:
@@ -81,7 +88,7 @@ def main() -> None:
             raise SystemExit(f"missing extract for {cc}: data/{raw}")
         (DATA / major).parent.mkdir(parents=True, exist_ok=True)
         stage(DATA / major, f"{cc}: major-roads filter", TOOLS_IMAGE,
-              "osmium", "tags-filter", "-o", f"/data/{major}", f"/data/{raw}", MAJOR_FILTER)
+              "osmium", "tags-filter", "--overwrite", "-o", f"/data/{major}", f"/data/{raw}", MAJOR_FILTER)
         connectors = f"build/{cc}/ferry-connectors.osm.pbf"
         stage(DATA / connectors, f"{cc}: ferry connectors", TOOLS_IMAGE,
               "python", "/scripts/ferry_connectors.py", f"/data/{raw}", f"/data/build/{cc}")
@@ -89,11 +96,11 @@ def main() -> None:
         if cc in NORTH_COUNTRIES:
             north = f"build/{cc}/north-{NORTH_LAT}.osm.pbf"
             stage(DATA / north, f"{cc}: north of {NORTH_LAT}N", TOOLS_IMAGE,
-                  "osmium", "extract", "-b", f"-180,{NORTH_LAT},-50,85",
+                  "osmium", "extract", "--overwrite", "-b", f"-180,{NORTH_LAT},-50,85",
                   "-o", f"/data/{north}", f"/data/{raw}")
             north_minor = f"build/{cc}/north-{NORTH_LAT}-minor.osm.pbf"
             stage(DATA / north_minor, f"{cc}: north minor roads", TOOLS_IMAGE,
-                  "osmium", "tags-filter", "-o", f"/data/{north_minor}",
+                  "osmium", "tags-filter", "--overwrite", "-o", f"/data/{north_minor}",
                   f"/data/{north}", NORTH_FILTER)
             inputs.append(north_minor)
 

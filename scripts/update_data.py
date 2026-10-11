@@ -27,7 +27,8 @@ from build_ferry_engine import COUNTRIES, OUT, TOOLS_IMAGE  # noqa: E402
 
 BASE = "https://download.geofabrik.de"
 # Geofabrik folder per country code (Central America is a top-level region).
-REGION = {"us": "north-america", "ca": "north-america", "mx": "north-america", "cam": ""}
+REGION = {"us": "north-america", "ca": "north-america", "mx": "north-america", "cam": "",
+          "pr": "north-america/us"}
 
 
 def remote_size(url: str) -> int:
