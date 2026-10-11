@@ -20,6 +20,7 @@ Runs in the my-osrm-tools container:
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -27,11 +28,22 @@ from pathlib import Path
 import osmium
 
 YES = {"yes", "designated", "permissive"}
-# Name/operator words for boats that never take a private car: rail and
-# freight lines, plus sightseeing ("Canada-USA Border Cruise" on Waterton
-# Lake is tagged nothing at all).
-FREIGHT_WORDS = ("railway", "rail ", "barge", "freight", "cargo", "marine lines",
-                 "cruise", " tour")
+# Whole-word name/operator patterns for boats that never take a private car:
+# rail and freight lines, plus sightseeing ("Canada-USA Border Cruise" on
+# Waterton Lake is tagged nothing at all). Word boundaries matter: a plain
+# "rail " substring also matched "West Coast Trail".
+DROP_RE = re.compile(
+    r"\b(railway|rail|barge|freight|cargo|marine lines|cruise|tour|clipper|water taxi|"
+    r"balearia|passenger)\b")
+# Operators / routes that are known car ferries but whose OSM tags only say
+# foot=yes (the rule below would drop them). Checked first.
+KEEP_RE = re.compile(
+    r"\b(washington state ferries|wsf|steamship authority|chi-cheemaun|owen sound|"
+    r"lake express|lake michigan carferry|badger|bc ferries|alaska marine highway|"
+    r"marine atlantic|baja ferries|oxford-bellevue|green river ferry|valley view ferry|"
+    r"kennebecasis|ultramar|transbordador|naviera|tobermory|south baymouth|"
+    r"peace river barge|fox lake access)\b")
+NO_CARS_RE = re.compile(r"\b(no cars|no vehicles|passengers? only|foot passengers? only)\b")
 
 
 def run(*args: str) -> None:
@@ -44,11 +56,16 @@ def is_car_ferry(tags) -> tuple[bool, str]:
     cargo = t.get("cargo", "")
     if any(t.get(k) in YES for k in ("motor_vehicle", "motorcar", "vehicle")) or "vehicle" in cargo:
         return True, "cars allowed"
+    note = f"{t.get('note', '')} {t.get('description', '')}".lower()
+    if NO_CARS_RE.search(note):
+        return False, "note says no cars"
     if "railway" in t or "rail" in cargo or cargo in {"goods", "freight", "container"}:
         return False, "rail/freight tags"
-    label = f"{t.get('name', '')} {t.get('operator', '')}".lower() + " "
-    if any(w in label for w in FREIGHT_WORDS):
-        return False, "rail/freight/tour name"
+    label = f"{t.get('name', '')} {t.get('operator', '')}".lower()
+    if KEEP_RE.search(label):
+        return True, "known car-ferry operator"
+    if DROP_RE.search(label):
+        return False, "rail/freight/tour/passenger name"
     if t.get("foot") in YES or t.get("bicycle") in YES:
         return False, "foot passengers, silent on cars"
     return True, "untagged (OSRM default)"

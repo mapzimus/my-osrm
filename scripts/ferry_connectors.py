@@ -34,6 +34,12 @@ MAJOR = {
     "motorway_link", "trunk_link", "primary_link", "secondary_link", "tertiary_link",
 }
 MINOR = {"unclassified", "residential", "service", "living_street", "road"}
+# Docks whose last hop is a footway/path/pier (369 of 1,156 kept ferries in
+# Oct 2026). Walked at a heavy penalty and only when short, then written out
+# as highway=service so OSRM will drive them.
+WALK = {"footway", "path", "pedestrian"}
+WALK_MAX_M = 300
+WALK_PENALTY = 6.0
 BOX_DEG = 0.06          # search area around each dock (~6 km)
 NO = {"no", "private"}
 # Ferry staging lanes are often tagged access=private ("ticket holders"),
@@ -114,23 +120,31 @@ class RoadGraph(osmium.SimpleHandler):
         self.inn: Adjacency = defaultdict(list)
         self.major_nodes: set[int] = set()
         self.gated_ways: set[int] = set()
+        self.walk_ways: set[int] = set()
 
     def way(self, w) -> None:
         hw = w.tags.get("highway")
-        if hw not in MAJOR and hw not in MINOR:
+        walk = hw in WALK or w.tags.get("man_made") == "pier"
+        if hw not in MAJOR and hw not in MINOR and not walk:
             return
         access = {w.tags.get(k) for k in ("access", "vehicle", "motor_vehicle", "motorcar")}
-        if "no" in access:
+        if "no" in access and not walk:          # a pier's motor_vehicle=no is expected
             return
+        refs = [(n.ref, (n.lon, n.lat)) for n in w.nodes]
+        if walk:
+            length = sum(meters(a, b) for (_, a), (_, b) in zip(refs, refs[1:]))
+            if length > WALK_MAX_M:
+                return
+            self.walk_ways.add(w.id)
         gated = bool(access & GATED)
         if gated:
             self.gated_ways.add(w.id)
-        refs = [(n.ref, (n.lon, n.lat)) for n in w.nodes]
         if hw in MAJOR and not gated:
             self.major_nodes.update(r for r, _ in refs)
-        direction = oneway(w.tags)
+        direction = 0 if walk else oneway(w.tags)
+        factor = WALK_PENALTY if walk else (GATED_PENALTY if gated else 1.0)
         for (a, pa), (b, pb) in zip(refs, refs[1:]):
-            d = meters(pa, pb) * (GATED_PENALTY if gated else 1.0)
+            d = meters(pa, pb) * factor
             if direction >= 0:
                 self.out[a].append((b, d, w.id))
                 self.inn[b].append((a, d, w.id))
@@ -185,17 +199,26 @@ def connector(graph: RoadGraph, start: int) -> tuple[str, float, list[int]]:
     return "island", 0.0, ways
 
 
-def ungate(src: Path, dst: Path, way_ids: set[int]) -> int:
-    """Copy src to dst, dropping gated access tags on the given ways."""
+def ungate(src: Path, dst: Path, gated_ids: set[int], walk_ids: set[int]) -> int:
+    """Copy src to dst: drop gate tags on gated ways, make walk ways drivable.
+
+    Every rewritten way gets version+1. The same way (same id, same version)
+    also exists in the major-roads file; with equal versions `osmium merge`
+    kept one copy at random, so Cape May-Lewes Ferry Road came out gated in
+    27 of 49 cases. A higher version makes the dedup keep ours, every time.
+    """
     dst.unlink(missing_ok=True)
     changed = 0
     with osmium.SimpleWriter(str(dst)) as writer:
         for obj in osmium.FileProcessor(str(src)):
-            if obj.is_way() and obj.id in way_ids:
+            if obj.is_way() and (obj.id in gated_ids or obj.id in walk_ids):
                 tags = {k: v for k, v in obj.tags
                         if not (k in {"access", "vehicle", "motor_vehicle", "motorcar"}
-                                and v in GATED)}
-                writer.add_way(obj.replace(tags=tags))
+                                and (v in GATED or (obj.id in walk_ids and v == "no")))}
+                if obj.id in walk_ids:
+                    tags["highway"] = "service"
+                    tags["my_osrm:dock_walkway"] = "yes"
+                writer.add_way(obj.replace(tags=tags, version=obj.version + 1))
                 changed += 1
             else:
                 writer.add(obj)
@@ -219,6 +242,13 @@ def main(raw: str, out_dir: str) -> None:
     ferries = Ferries()
     ferries.apply_file(str(ferries_pbf), locations=True)
     print(f"car ferries: {len(ferries.ways)}", flush=True)
+    if not ferries.ways:
+        # Nothing to connect (a cut-out, or a landlocked extract): an empty
+        # union would crash osmium extract. Emit an empty result instead.
+        run("osmium", "cat", "--overwrite", "-o", str(result_pbf), str(ferries_pbf))
+        (out / "ferry-report.json").write_text(json.dumps(
+            {"summary": {}, "connector_ways": 0, "endpoints": []}, indent=1))
+        return
 
     # 2. Cut a small area around every dock out of the full extract.
     docks = {e for f in ferries.ways.values() for e in f["ends"]}
@@ -256,7 +286,8 @@ def main(raw: str, out_dir: str) -> None:
         raw_connectors = out / "connector-ways-raw.osm.pbf"
         run("osmium", "getid", "--overwrite", "-r", "-i", str(ids_txt),
             "-o", str(raw_connectors), str(near_pbf))
-        ungated = ungate(raw_connectors, connectors_pbf, keep & graph.gated_ways)
+        ungated = ungate(raw_connectors, connectors_pbf, keep & graph.gated_ways,
+                         keep & graph.walk_ways)
         print(f"ungated connector ways: {ungated}", flush=True)
         run("osmium", "merge", "--overwrite", "-o", str(result_pbf),
             str(ferries_pbf), str(connectors_pbf))

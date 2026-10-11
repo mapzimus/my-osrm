@@ -43,11 +43,12 @@ echo "[filter_pbf] filter: highway in {motorway,trunk,primary,secondary,tertiary
 docker run --rm \
     -v "${INPUT_DIR_ABS}:/in:ro" \
     -v "${OUTPUT_DIR_ABS}:/out" \
-    iboates/osmium@sha256:a67987f7d822d951ae1979de656ab7bd8051605f79d2751ea4800cc6057124be \
+    my-osrm-tools \
     tags-filter \
     --overwrite \
     -o "/out/${OUTPUT_NAME}" \
     "/in/${INPUT_NAME}" \
-    w/highway=motorway,trunk,primary,secondary,tertiary,motorway_link,trunk_link,primary_link,secondary_link,tertiary_link
+    w/highway=motorway,trunk,primary,secondary,tertiary,motorway_link,trunk_link,primary_link,secondary_link,tertiary_link \
+    r/type=restriction
 
 echo "[filter_pbf] done: $(du -h "${OUTPUT_DIR_ABS}/${OUTPUT_NAME}" | cut -f1)"

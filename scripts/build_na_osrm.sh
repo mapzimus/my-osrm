@@ -30,7 +30,7 @@ NA_PBF_MERGED="${NA_DIR}/north-america-major.osm.pbf"
 NA_OSRM="${NA_DIR}/north-america-major.osrm"
 # Pinned images: OSRM v26.5.0 (built the existing artifacts), osmium 1.19.0.
 OSRM_IMAGE="ghcr.io/project-osrm/osrm-backend@sha256:aa6a1de3a71dafffd0ba39340542524f66e6841fc19bf7874a0e6a7967837f56"
-OSMIUM_IMAGE="iboates/osmium@sha256:a67987f7d822d951ae1979de656ab7bd8051605f79d2751ea4800cc6057124be"
+OSMIUM_IMAGE="my-osrm-tools"
 PROFILE="${REPO_ROOT}/profiles/car.lua"
 PBF_URL="https://download.geofabrik.de/north-america/canada-latest.osm.pbf"
 
@@ -90,7 +90,8 @@ else
         --overwrite \
         -o "/out/canada-major.osm.pbf" \
         "/in/canada-latest.osm.pbf" \
-        w/highway=motorway,trunk,primary,secondary,tertiary,motorway_link,trunk_link,primary_link,secondary_link,tertiary_link
+        w/highway=motorway,trunk,primary,secondary,tertiary,motorway_link,trunk_link,primary_link,secondary_link,tertiary_link \
+        r/type=restriction
     log "Canada major-roads PBF written: $(du -h "${CA_PBF_MAJOR}" | cut -f1)"
 fi
 
