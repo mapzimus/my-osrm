@@ -382,6 +382,8 @@ needs = "us"
 from = [-122.3340, 47.6050]  # downtown Seattle
 to = [-122.6260, 47.5620]    # Bremerton terminal
 max_miles = 21               # direct ferry ~15 mi; via Bainbridge ~25 mi; land ~70 mi
+exclude = "motorway"         # ferry 60 + 30 boarding loses to the I-5/WA-16 drive (79 min),
+                             # as it does in reality off-peak; this case checks the ferry EXISTS
 note = "Colman Dock <-> Bremerton, 60-min crossing"
 
 [[case]]
@@ -392,3 +394,21 @@ from = [-87.9065, 43.0389]   # downtown Milwaukee
 to = [-86.2484, 43.2342]     # downtown Muskegon
 max_miles = 130              # ferry ~85 mi; around via Chicago ~275 mi
 note = "Lake Express high-speed car ferry, 2.5-h crossing, May-October"
+
+[[case]]
+name = "Courtenay -> Powell River (Little River ferry)"
+kind = "ferry"
+needs = "na"
+from = [-124.9940, 49.6841]  # Courtenay
+to = [-124.5240, 49.8350]    # Powell River
+max_miles = 40               # ferry ~25 mi; around via Horseshoe Bay ~250 mi
+note = "Regression: Comox dock connector stopped at a stranded major fragment"
+
+[[case]]
+name = "Victoria -> Vancouver (Swartz Bay-Tsawwassen)"
+kind = "ferry"
+needs = "na"
+from = [-123.3656, 48.4284]
+to = [-123.1207, 49.2827]
+max_miles = 75
+note = "Regression: Swartz Bay berth approaches sat on a stranded major fragment"

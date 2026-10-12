@@ -47,7 +47,24 @@ NO = {"no", "private"}
 # penalty (public roads win when they exist), then strip the tag on output.
 GATED = {"private", "destination", "customers", "permit"}
 GATED_PENALTY = 3.0
+# A major-road node only counts as "the network" if this much major road lies
+# behind it (to drive IN to the dock) or ahead of it (to drive OUT), following
+# oneway rules. Tsawwassen: the ticket-booth lanes are highway=service, so the
+# major filter left the inbound Ferry Causeway as a stranded 1 km trunk
+# fragment; the berth search stopped there, and the terminal was exit-only.
+MIN_MAJOR_REACH_M = 3_000
+# Docks reachable one way only: the ferry line ends at the tip of a oneway
+# boarding lane and the exit lane is not attached to it (Walpole Island:
+# cars could board but never drive off). Retry the failed direction letting
+# oneway service lanes run backwards at this cost factor; the lanes used are
+# written out as two-way (my_osrm:dock_contraflow=yes).
+CONTRA_PENALTY = 4.0
 
+
+
+def ready(path: Path) -> bool:
+    """Exists AND non-empty: a crashed run left 0-byte files that looked done."""
+    return path.exists() and path.stat().st_size > 0
 
 def run(*args: str) -> None:
     print("+", " ".join(args), flush=True)
@@ -119,8 +136,18 @@ class RoadGraph(osmium.SimpleHandler):
         self.out: Adjacency = defaultdict(list)
         self.inn: Adjacency = defaultdict(list)
         self.major_nodes: set[int] = set()
+        # Major roads only, same direction convention as out/inn.
+        self.major_out: Adjacency = defaultdict(list)
+        self.major_inn: Adjacency = defaultdict(list)
         self.gated_ways: set[int] = set()
         self.walk_ways: set[int] = set()
+        self.reach_out: dict[int, bool] = {}
+        self.reach_in: dict[int, bool] = {}
+        # Oneway service lanes, reversed (for the one-way-dock retry).
+        self.contra_out: Adjacency = defaultdict(list)
+        self.contra_inn: Adjacency = defaultdict(list)
+        self.contra_ways: set[int] = set()
+        self.two_way: set[int] = set()        # lanes to write out as two-way
 
     def way(self, w) -> None:
         hw = w.tags.get("highway")
@@ -143,18 +170,59 @@ class RoadGraph(osmium.SimpleHandler):
             self.major_nodes.update(r for r, _ in refs)
         direction = 0 if walk else oneway(w.tags)
         factor = WALK_PENALTY if walk else (GATED_PENALTY if gated else 1.0)
+        is_major = hw in MAJOR and not gated
+        contra = hw == "service" and direction != 0
+        if contra:
+            self.contra_ways.add(w.id)
         for (a, pa), (b, pb) in zip(refs, refs[1:]):
             d = meters(pa, pb) * factor
+            if contra:   # the direction the oneway forbids
+                x, y = (b, a) if direction > 0 else (a, b)
+                self.contra_out[x].append((y, d * CONTRA_PENALTY, w.id))
+                self.contra_inn[y].append((x, d * CONTRA_PENALTY, w.id))
             if direction >= 0:
                 self.out[a].append((b, d, w.id))
                 self.inn[b].append((a, d, w.id))
+                if is_major:
+                    self.major_out[a].append((b, d, w.id))
+                    self.major_inn[b].append((a, d, w.id))
             if direction <= 0:
                 self.out[b].append((a, d, w.id))
                 self.inn[a].append((b, d, w.id))
+                if is_major:
+                    self.major_out[b].append((a, d, w.id))
+                    self.major_inn[a].append((b, d, w.id))
 
 
-def search(adj: Adjacency, majors: set[int], start: int) -> tuple[bool, float, set[int]]:
-    """Dijkstra to the nearest major node.
+def has_reach(adj: Adjacency, node: int, cache: dict[int, bool]) -> bool:
+    """True if MIN_MAJOR_REACH_M of road, in total, is reachable from node.
+
+    Total length, not distance: a dock at the tip of a short peninsula
+    (Greenport, Jamestown VA) is never 3 km from anything, yet sits on the
+    real network; a stranded fragment is short no matter how it is measured.
+    """
+    if node in cache:
+        return cache[node]
+    seen = {node}
+    stack = [node]
+    total = 0.0
+    ok = False
+    while stack and not ok:
+        n = stack.pop()
+        for nxt, step, _ in adj[n]:
+            if nxt not in seen:
+                seen.add(nxt)
+                total += step
+                if total >= MIN_MAJOR_REACH_M:
+                    ok = True
+                    break
+                stack.append(nxt)
+    cache[node] = ok
+    return ok
+
+
+def search(adj: Adjacency, is_target, start: int) -> tuple[bool, float, set[int]]:
+    """Dijkstra to the nearest node that is_target accepts.
 
     Returns (reached, meters, ways): the path's ways if reached, otherwise
     every way explored (the whole local minor-road network).
@@ -166,7 +234,7 @@ def search(adj: Adjacency, majors: set[int], start: int) -> tuple[bool, float, s
         d, node = heapq.heappop(heap)
         if d > dist[node]:
             continue
-        if node in majors:
+        if is_target(node):
             ways = set()
             while node != start:
                 node, way_id = prev[node]
@@ -181,17 +249,46 @@ def search(adj: Adjacency, majors: set[int], start: int) -> tuple[bool, float, s
     return False, 0.0, {way_id for _, way_id in prev.values()}
 
 
+class Joined:
+    """Two adjacency maps read as one (search only indexes it)."""
+
+    def __init__(self, a: Adjacency, b: Adjacency) -> None:
+        self.a, self.b = a, b
+
+    def __getitem__(self, n: int) -> list:
+        return self.a[n] + self.b[n]
+
+
 def connector(graph: RoadGraph, start: int) -> tuple[str, float, list[int]]:
     """Keep a legal way OUT of the dock and a legal way IN to it."""
-    if start in graph.major_nodes:
+    def leads_on(n: int) -> bool:      # out-search target: major road ahead
+        return n in graph.major_nodes and has_reach(graph.major_out, n, graph.reach_out)
+
+    def fed_from(n: int) -> bool:      # in-search target: major road behind
+        return n in graph.major_nodes and has_reach(graph.major_inn, n, graph.reach_in)
+
+    if leads_on(start) and fed_from(start):
         return "on_major", 0.0, []
     if start not in graph.out and start not in graph.inn:
         return "floating", 0.0, []  # no road touches this ferry end
-    got_out, m_out, ways_out = search(graph.out, graph.major_nodes, start)
-    got_in, m_in, ways_in = search(graph.inn, graph.major_nodes, start)
+    got_out, m_out, ways_out = search(graph.out, leads_on, start)
+    got_in, m_in, ways_in = search(graph.inn, fed_from, start)
+    status = "connected"
+    if got_out != got_in:
+        # One-way dock: retry the failed direction with reversible lanes.
+        adj, extra, target = ((graph.out, graph.contra_out, leads_on) if not got_out
+                              else (graph.inn, graph.contra_inn, fed_from))
+        ok, m, retry_ways = search(Joined(adj, extra), target, start)
+        if ok:
+            graph.two_way.update(retry_ways & graph.contra_ways)
+            if not got_out:
+                got_out, m_out, ways_out = ok, m, retry_ways
+            else:
+                got_in, m_in, ways_in = ok, m, retry_ways
+            status = "connected_contraflow"
     ways = sorted(ways_out | ways_in)
     if got_out and got_in:
-        return "connected", max(m_out, m_in), ways
+        return status, max(m_out, m_in), ways
     if got_out or got_in:
         return "one_way_only", max(m_out, m_in), ways
     # No major road in reach: an island (or isolated shore) served only by
@@ -199,7 +296,8 @@ def connector(graph: RoadGraph, start: int) -> tuple[str, float, list[int]]:
     return "island", 0.0, ways
 
 
-def ungate(src: Path, dst: Path, gated_ids: set[int], walk_ids: set[int]) -> int:
+def ungate(src: Path, dst: Path, gated_ids: set[int], walk_ids: set[int],
+           two_way_ids: set[int] = frozenset()) -> int:
     """Copy src to dst: drop gate tags on gated ways, make walk ways drivable.
 
     Every rewritten way gets version+1. The same way (same id, same version)
@@ -211,13 +309,17 @@ def ungate(src: Path, dst: Path, gated_ids: set[int], walk_ids: set[int]) -> int
     changed = 0
     with osmium.SimpleWriter(str(dst)) as writer:
         for obj in osmium.FileProcessor(str(src)):
-            if obj.is_way() and (obj.id in gated_ids or obj.id in walk_ids):
+            if obj.is_way() and (obj.id in gated_ids or obj.id in walk_ids
+                                 or obj.id in two_way_ids):
                 tags = {k: v for k, v in obj.tags
                         if not (k in {"access", "vehicle", "motor_vehicle", "motorcar"}
                                 and (v in GATED or (obj.id in walk_ids and v == "no")))}
                 if obj.id in walk_ids:
                     tags["highway"] = "service"
                     tags["my_osrm:dock_walkway"] = "yes"
+                if obj.id in two_way_ids:
+                    tags["oneway"] = "no"
+                    tags["my_osrm:dock_contraflow"] = "yes"
                 writer.add_way(obj.replace(tags=tags, version=obj.version + 1))
                 changed += 1
             else:
@@ -239,7 +341,7 @@ def main(raw: str, out_dir: str) -> None:
     #    Steps 1-2 each scan the full extract; skip them on re-runs.
     #    Temp name + rename: a freeze mid-write must not leave a truncated
     #    file that a resumed run trusts.
-    if not ferries_pbf.exists():
+    if not ready(ferries_pbf):
         tmp = ferries_pbf.with_suffix(".part.pbf")
         run("osmium", "tags-filter", "--overwrite", "-F", "pbf", "-f", "pbf",
             "-o", str(tmp), raw, "w/route=ferry")
@@ -264,7 +366,7 @@ def main(raw: str, out_dir: str) -> None:
     boxes_json.write_text(json.dumps(
         {"type": "Feature", "properties": {}, "geometry": mapping(area)}
     ))
-    if not near_pbf.exists():
+    if not ready(near_pbf):
         tmp = near_pbf.with_suffix(".part.pbf")
         run("osmium", "extract", "--overwrite", "-F", "pbf", "-f", "pbf", "-p", str(boxes_json),
             "-o", str(tmp), raw)
@@ -294,7 +396,7 @@ def main(raw: str, out_dir: str) -> None:
         run("osmium", "getid", "--overwrite", "-r", "-i", str(ids_txt),
             "-o", str(raw_connectors), str(near_pbf))
         ungated = ungate(raw_connectors, connectors_pbf, keep & graph.gated_ways,
-                         keep & graph.walk_ways)
+                         keep & graph.walk_ways, keep & graph.two_way)
         print(f"ungated connector ways: {ungated}", flush=True)
         run("osmium", "merge", "--overwrite", "-o", str(result_pbf),
             str(ferries_pbf), str(connectors_pbf))

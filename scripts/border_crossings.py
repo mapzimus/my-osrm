@@ -38,6 +38,11 @@ STRIP_DEG = 0.03          # land-border search strip (~3 km each side)
 SAME_CROSSING_M = 200     # intersection points closer than this are one crossing
 
 
+
+def ready(path: Path) -> bool:
+    """Exists AND non-empty: a crashed run left 0-byte files that looked done."""
+    return path.exists() and path.stat().st_size > 0
+
 def run(*args: str) -> None:
     print("+", " ".join(args), flush=True)
     subprocess.run(args, check=True)
@@ -176,7 +181,7 @@ def main(merged: str, out: str, work: str, *raws: str) -> None:
     parts = []
     for raw in raws:
         part = wd / f"boundaries-{Path(raw).name.split('-latest')[0]}.osm.pbf"
-        if not part.exists():
+        if not ready(part):
             # admin_level=2 only: r/boundary=administrative also pulled every
             # county and township line, which took 21 min on the US extract.
             # Written under a temp name and renamed when complete: a machine
