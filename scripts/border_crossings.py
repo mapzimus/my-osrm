@@ -179,7 +179,12 @@ def main(merged: str, out: str, work: str, *raws: str) -> None:
         if not part.exists():
             # admin_level=2 only: r/boundary=administrative also pulled every
             # county and township line, which took 21 min on the US extract.
-            run("osmium", "tags-filter", "-o", str(part), raw, "r/admin_level=2")
+            # Written under a temp name and renamed when complete: a machine
+            # freeze mid-write left a truncated file that a resumed run trusted.
+            tmp = part.with_suffix(".part.pbf")
+            run("osmium", "tags-filter", "--overwrite", "-F", "pbf", "-f", "pbf",
+                "-o", str(tmp), raw, "r/admin_level=2")
+            tmp.replace(part)
         parts.append(str(part))
     bounds = wd / "boundaries.osm.pbf"
     run("osmium", "merge", "--overwrite", "-o", str(bounds), *parts)

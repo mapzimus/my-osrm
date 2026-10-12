@@ -237,8 +237,13 @@ def main(raw: str, out_dir: str) -> None:
 
     # 1. All ferry ways (+ their nodes, so endpoints have locations).
     #    Steps 1-2 each scan the full extract; skip them on re-runs.
+    #    Temp name + rename: a freeze mid-write must not leave a truncated
+    #    file that a resumed run trusts.
     if not ferries_pbf.exists():
-        run("osmium", "tags-filter", "-o", str(ferries_pbf), raw, "w/route=ferry")
+        tmp = ferries_pbf.with_suffix(".part.pbf")
+        run("osmium", "tags-filter", "--overwrite", "-F", "pbf", "-f", "pbf",
+            "-o", str(tmp), raw, "w/route=ferry")
+        tmp.replace(ferries_pbf)
     ferries = Ferries()
     ferries.apply_file(str(ferries_pbf), locations=True)
     print(f"car ferries: {len(ferries.ways)}", flush=True)
@@ -260,8 +265,10 @@ def main(raw: str, out_dir: str) -> None:
         {"type": "Feature", "properties": {}, "geometry": mapping(area)}
     ))
     if not near_pbf.exists():
-        run("osmium", "extract", "-p", str(boxes_json),
-            "-o", str(near_pbf), raw)
+        tmp = near_pbf.with_suffix(".part.pbf")
+        run("osmium", "extract", "--overwrite", "-F", "pbf", "-f", "pbf", "-p", str(boxes_json),
+            "-o", str(tmp), raw)
+        tmp.replace(near_pbf)
 
     # 3. Shortest minor-road path from each dock to the major network.
     graph = RoadGraph()
