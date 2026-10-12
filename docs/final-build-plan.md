@@ -29,6 +29,7 @@ crossing in both directions.
 - Belize water-taxi docks (car-free islands) are classed as `island`.
 
 ## Run order
+0. `create` ships the LOCAL scripts/ profiles/ tools/ benchmarks/ folders, not git. Run it from main after the merge, with `git status --short scripts profiles tools benchmarks` showing no modified files. Untracked caches like `cities.json` are harmless.
 1. `pwsh -File scripts/cloud_build.ps1 create`: about 45 min build, then verification on the VM.
 2. `pwsh -File scripts/cloud_build.ps1 status` until `DONE`. Read `report_card.txt` on the VM. **Expect 41/41.** Ferry sweep: no Tsawwassen, Swartz Bay or Walpole flags.
 3. If anything fails, debug on the VM; the intermediates are still there. Otherwise run `fetch`, then `delete`.
