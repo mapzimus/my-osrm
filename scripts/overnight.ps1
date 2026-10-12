@@ -1,10 +1,14 @@
 # overnight.ps1 - full rebuild + verification + renders, unattended.
 #
 #   pwsh -File scripts/overnight.ps1
+#   pwsh -File scripts/overnight.ps1 -SkipBuild   # engine already in data/osrm-na-ferry
+#                                                 # (e.g. built in the cloud by cloud_build.ps1)
 #
 # Each step logs to experiments/isochrone/out/overnight.log and keeps going
 # past non-fatal failures; experiments/isochrone/out/OVERNIGHT.md is the
 # morning summary (step results, report card, airport snaps, key times).
+
+param([switch]$SkipBuild)
 
 $ErrorActionPreference = 'Continue'
 # 4 extract threads, not 6: peak memory scales with threads, and the 24 GB
@@ -46,8 +50,13 @@ function Step([string]$name, [scriptblock]$body) {
 # only the console is filtered.
 docker compose --profile major --profile full stop 2>&1 | Tee-Object -FilePath $Log -Append | Out-Null
 
-$built = Step 'build engine' {
-    & $Py scripts\build_ferry_engine.py
+if ($SkipBuild) {
+    $built = Test-Path (Join-Path $Root 'data\osrm-na-ferry\na-ferry.osrm.cell_metrics')
+    $results['build engine'] = if ($built) { 'skipped (prebuilt engine)' } else { 'FAILED (no prebuilt engine)' }
+} else {
+    $built = Step 'build engine' {
+        & $Py scripts\build_ferry_engine.py
+    }
 }
 
 if ($built) {
