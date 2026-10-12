@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -42,7 +43,10 @@ MIN_FLIGHT_H = 2.5                                  # ~6 frames at the slow end 
 EXTRA_CITIES = {"Havana": (-82.3666, 23.1136), "Nassau": (-77.3554, 25.0480),
                 "Port of Spain": (-61.5190, 10.6596), "Bermuda": (-64.7814, 32.2949),
                 "Nuuk": (-51.7216, 64.1814), "Iqaluit": (-68.5170, 63.7467),
-                "Utqiagvik": (-156.7886, 71.2906)}
+                "Utqiagvik": (-156.7886, 71.2906),
+                # The last place to light up (Alaska Marine Highway via Homer):
+                # without a label the video's final ~50 h showed nothing happening.
+                "Dutch Harbor": (-166.5418, 53.8898)}
 
 FONTS = Path("C:/Windows/Fonts")
 FPS = 30
@@ -63,7 +67,8 @@ VIDEO_CITIES = [
     "Monterrey", "Mexico City", "Cancún", "Cabo San Lucas", "Guatemala City",
     "Panama City", "Honolulu", "Hilo", "San Juan",
 ]
-LEFT_LABELS = {"Seattle", "San Francisco", "Los Angeles", "Anchorage", "Key West",
+LEFT_LABELS = {"Seattle", "San Francisco", "Los Angeles", "Key West",   # Anchorage: right,
+                                                       # its left label covered the Aleutians
                "Chicago", "St. John's NL", "Miami", "Havana", "Cancún", "San Juan",
                "Iqaluit"}                   # right-side text ran under the Greenland inset
 
@@ -253,6 +258,15 @@ def main() -> None:
 
     finite = np.concatenate([H[np.isfinite(H)]] + [i[1][np.isfinite(i[1])] for i in insets])
     t_end = float(np.ceil(finite.max()))
+    if os.environ.get("ANIMATE_DEBUG"):     # where is the slowest drawn pixel?
+        Hs = np.where(np.isfinite(H), H, -1)
+        for q in (60, 85, 95, 110, 130):
+            yy, xx = np.where(Hs > q)
+            if len(yy):
+                print(f">{q} h: {len(yy)} px, x {xx.min() / SS + box[0]:.0f}-{xx.max() / SS + box[0]:.0f}, "
+                      f"y {yy.min() / SS + box[1]:.0f}-{yy.max() / SS + box[1]:.0f}")
+        print("t_end", t_end, "Dutch Harbor px", tuple(round(float(v)) for v in to_px(-166.5418, 53.8898)))
+        sys.exit(0)
     n_bands = int(t_end)
     pal = iso.palette_for(n_bands)[:, :3].astype(np.float32)
     days = math.ceil(n_bands / iso.DAY_HOURS)
@@ -283,8 +297,20 @@ def main() -> None:
         hrs = c["hours"] if c["hours"] is not None else iso.sample(reach, lons, lats, c["lon"], c["lat"])
         if hrs is not None and not (gl[0] <= c["lon"] <= gl[2] and gl[1] <= c["lat"] <= gl[3]):
             labels.append((hrs, nm, *place(c["lon"], c["lat"])))   # no Greenland (no inset)
+    def sample_near(lon, lat, r=4):
+        """Nearest reached land cell within r cells: a harbour town's own cell
+        is often water on the 0.05-degree land mask (Dutch Harbor was)."""
+        iy, ix = int(np.abs(lats - lat).argmin()), int(np.abs(lons - lon).argmin())
+        win = reach[max(iy - r, 0):iy + r + 1, max(ix - r, 0):ix + r + 1]
+        ok = np.argwhere(np.isfinite(win))
+        if not len(ok):
+            return None
+        c = np.array([min(iy, r), min(ix, r)])
+        y, x = ok[np.abs(ok - c).sum(axis=1).argmin()]
+        return round(float(win[y, x]), 2)
+
     for nm, (lon, lat) in EXTRA_CITIES.items():
-        hrs = iso.sample(reach, lons, lats, lon, lat)
+        hrs = sample_near(lon, lat)
         if hrs is not None and not (gl[0] <= lon <= gl[2] and gl[1] <= lat <= gl[3]):
             labels.append((hrs, nm, *place(lon, lat)))
     ox, oy = (float(v) for v in to_px(*origin))
