@@ -46,8 +46,8 @@ EXTRA_CITIES = {"Havana": (-82.3666, 23.1136), "Nassau": (-77.3554, 25.0480),
 
 FONTS = Path("C:/Windows/Fonts")
 FPS = 30
-WAVE_SECONDS = 14
-HOLD_SECONDS = 2.5
+WAVE_SECONDS = 28                                    # half speed (was 14 / 2.5)
+HOLD_SECONDS = 5
 SS = 2                                   # supersampling for smooth edges
 
 WATER = np.array([13, 17, 23], dtype=np.float32)
@@ -239,8 +239,8 @@ def main() -> None:
     insets = []                      # (box, layer data, to_px, label, region)
     for xy, proj, keep, label, region in (
         (INSET_XY, Albers(lon0=-157.3, lat0=20.5, lat1=19.0, lat2=22.0), in_hawaii, "Hawaii", hw),
-        (GREENLAND_XY, Albers(lon0=-52.0, lat0=66.0, lat1=63.0, lat2=70.0), in_greenland,
-         "Greenland", gl),
+        # Greenland inset dropped from the video (Max, 2026-10-12): Greenland
+        # stays off the main map too (keep= above), and its flights are cut.
     ):
         if not (valid & keep).any():
             continue
@@ -281,11 +281,11 @@ def main() -> None:
         if not c:
             continue
         hrs = c["hours"] if c["hours"] is not None else iso.sample(reach, lons, lats, c["lon"], c["lat"])
-        if hrs is not None:
-            labels.append((hrs, nm, *place(c["lon"], c["lat"])))
+        if hrs is not None and not (gl[0] <= c["lon"] <= gl[2] and gl[1] <= c["lat"] <= gl[3]):
+            labels.append((hrs, nm, *place(c["lon"], c["lat"])))   # no Greenland (no inset)
     for nm, (lon, lat) in EXTRA_CITIES.items():
         hrs = iso.sample(reach, lons, lats, lon, lat)
-        if hrs is not None:
+        if hrs is not None and not (gl[0] <= lon <= gl[2] and gl[1] <= lat <= gl[3]):
             labels.append((hrs, nm, *place(lon, lat)))
     ox, oy = (float(v) for v in to_px(*origin))
 
@@ -294,6 +294,10 @@ def main() -> None:
     # so compute_hours doesn't return it).
     if legs:
         legs = flights.plan(iso.drive_to_airports(URL, origin))
+    def in_gl(code):
+        _, lon, lat = flights.AIRPORTS[code]
+        return gl[0] <= lon <= gl[2] and gl[1] <= lat <= gl[3]
+    legs = [leg for leg in legs if not (in_gl(leg.src) or in_gl(leg.dst))]
     paths = [(leg, arc(place(*flights.AIRPORTS[leg.src][1:]), place(*flights.AIRPORTS[leg.dst][1:]),
                        lift=0.22 if leg.src == "BOS" else 0.35)) for leg in legs]
 
@@ -380,7 +384,7 @@ def main() -> None:
                 draw_plane(d, x, y, ang, 1.5 if leg.dst in BIG_PLANES else 0.9)
 
         # Origin: pulsing dot.
-        pulse = 7 + 4 * (0.5 + 0.5 * math.sin(i / FPS * 2 * math.pi * 1.2))
+        pulse = 7 + 4 * (0.5 + 0.5 * math.sin(i / FPS * 2 * math.pi * 0.6))
         # Dark under-ring: the origin sits on inferno's brightest yellow.
         d.ellipse((ox - pulse - 2, oy - pulse - 2, ox + pulse + 2, oy + pulse + 2),
                   outline=tuple(int(v) for v in WATER), width=2)
