@@ -7,6 +7,28 @@ export const title = "Route";
 
 const ICONS = { ferry: "⛴", turn: "↪", depart: "●", arrive: "◉", merge: "⤴", "on ramp": "⤴", "off ramp": "⤵", fork: "⑂", roundabout: "↻", continue: "↑" };
 
+// OSRM maneuver type + modifier -> plain words ("new name straight" -> "Continue onto")
+const DIR = { left: "left", right: "right", "slight left": "slightly left", "slight right": "slightly right",
+  "sharp left": "sharp left", "sharp right": "sharp right", straight: "straight", uturn: "U-turn" };
+function turnText(s) {
+  const dir = DIR[s.modifier] || s.modifier || "";
+  if (s.mode === "ferry" && s.type !== "arrive") return "Board ferry";
+  switch (s.type) {
+    case "depart": return "Depart";
+    case "arrive": return "Arrive";
+    case "new name": case "continue": case "notification":
+      return dir && dir !== "straight" ? `Keep ${dir} onto` : "Continue onto";
+    case "turn": case "end of road": return dir === "U-turn" ? "Make a U-turn onto" : `Turn ${dir} onto`;
+    case "merge": return "Merge onto";
+    case "on ramp": return `Take the ramp ${dir ? dir + " " : ""}onto`;
+    case "off ramp": return `Take the exit ${dir ? dir + " " : ""}onto`;
+    case "fork": return `Keep ${dir} at the fork onto`;
+    case "roundabout": case "rotary": case "roundabout turn": case "exit roundabout": case "exit rotary":
+      return "At the roundabout, take";
+    default: return `${s.type}${dir ? " " + dir : ""}`;
+  }
+}
+
 export async function init(ctx) {
   let result = null;
   let timer = null;
@@ -55,12 +77,15 @@ export async function init(ctx) {
   }
 
   function renderSteps(r) {
-    steps.replaceChildren(...r.steps.filter((s) => s.distance_m > 0 || s.type === "arrive").map((s) => {
+    const shown = r.steps.filter((s) => s.distance_m > 0 || s.type === "arrive");
+    steps.replaceChildren(...shown.map((s, i) => {
+      // OSRM books the ferry boarding wait on the step that drives onto the dock
+      const boards = s.mode !== "ferry" && shown[i + 1]?.mode === "ferry";
       const icon = s.mode === "ferry" ? ICONS.ferry : ICONS[s.type] || ICONS.turn;
       const road = [s.ref, s.name].filter(Boolean).join(" · ") || (s.mode === "ferry" ? "ferry" : "unnamed road");
-      const what = s.type === "arrive" ? "Arrive" : s.type === "depart" ? "Depart" : `${s.type}${s.modifier ? " " + s.modifier : ""}`;
+      const what = turnText(s);
       return h("div", { class: s.mode === "ferry" ? "ferry" : "", onClick: () => s.location && ctx.map.flyTo({ center: s.location, zoom: Math.max(ctx.map.getZoom(), 11) }) },
-        `${icon} ${what} — ${road} `, h("small", {}, `${fmtMi(s.distance_m / 1609.344)}, ${fmtH(s.duration_s / 3600)}`));
+        `${icon} ${what} — ${road} `, h("small", {}, `${fmtMi(s.distance_m / 1609.344)}, ${fmtH(s.duration_s / 3600)}${boards ? " incl. boarding wait" : ""}`));
     }));
   }
 
