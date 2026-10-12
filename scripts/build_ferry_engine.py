@@ -87,7 +87,8 @@ def stage(sentinel: Path, label: str, image: str, *args: str,
     # served the old network; without the marker, an interrupted stage's
     # truncated output was trusted.
     done = sentinel.with_name(sentinel.name + ".done")
-    if sentinel.exists() and done.exists():
+    # Size > 0 too: a crashed run left 0-byte outputs that looked complete.
+    if sentinel.exists() and sentinel.stat().st_size > 0 and done.exists():
         stale = [p for p in inputs if p.exists() and p.stat().st_mtime > done.stat().st_mtime]
         if not stale:
             print(f"[skip] {label}: {sentinel.name} done")
@@ -133,6 +134,7 @@ def main() -> None:
     out = "/data/osrm-na-ferry"
     in_paths = tuple(DATA / p for p in inputs)
     merged, dedup = OUT / "na-merged.osm.pbf", OUT / "na-dedup.osm.pbf"
+    car_pbf = OUT / "na-carferries.osm.pbf"
     pbf = OUT / f"{NAME}.osm.pbf"
     osrm = OUT / f"{NAME}.osrm"
     stage(merged, "merge", TOOLS_IMAGE, "osmium", "merge", "--overwrite",
@@ -148,9 +150,14 @@ def main() -> None:
           *[f"/data/{raw}" for raw, _ in COUNTRIES.values()],
           inputs=(dedup, scripts / "border_crossings.py"))
     # Drop rail, freight, tour and foot-passenger ferries (car_ferries.py).
-    stage(pbf, "car ferries only", TOOLS_IMAGE, "python", "/scripts/car_ferries.py",
-          f"{out}/{borders.name}", f"{out}/{pbf.name}", f"{out}/ferries",
+    stage(car_pbf, "car ferries only", TOOLS_IMAGE, "python", "/scripts/car_ferries.py",
+          f"{out}/{borders.name}", f"{out}/{car_pbf.name}", f"{out}/ferries",
           inputs=(borders, scripts / "car_ferries.py"))
+    # Approach stubs that copy the whole crossing's duration (Seattle-Bremerton
+    # charged its hour twice) and MM:SS typos read as hours (ferry_durations.py).
+    stage(pbf, "ferry durations", TOOLS_IMAGE, "python", "/scripts/ferry_durations.py",
+          f"{out}/{car_pbf.name}", f"{out}/{pbf.name}", f"{out}/ferries",
+          inputs=(car_pbf, scripts / "ferry_durations.py"))
     profile = ROOT / "profiles" / "car.lua"
     stage(osrm.with_suffix(".osrm.fileIndex"), "extract", OSRM_IMAGE,
           "osrm-extract", "-p", "/opt/car.lua", "--threads", THREADS,

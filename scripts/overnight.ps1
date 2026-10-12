@@ -51,7 +51,15 @@ function Step([string]$name, [scriptblock]$body) {
 docker compose --profile major --profile full stop 2>&1 | Tee-Object -FilePath $Log -Append | Out-Null
 
 if ($SkipBuild) {
-    $built = Test-Path (Join-Path $Root 'data\osrm-na-ferry\na-ferry.osrm.cell_metrics')
+    # Every file osrm-routed maps, not just one: a partial untar passed the
+    # old single-file check and then the engine would not start.
+    $need = 'cell_metrics', 'cells', 'cnbg', 'cnbg_to_ebg', 'datasource_names', 'ebg', 'ebg_nodes',
+            'edges', 'enw', 'fileIndex', 'geometry', 'icd', 'maneuver_overrides', 'mldgr', 'names',
+            'nbg_nodes', 'partition', 'properties', 'ramIndex', 'restrictions', 'timestamp', 'tld',
+            'tls', 'turn_duration_penalties', 'turn_penalties_index', 'turn_weight_penalties'
+    $missing = $need | Where-Object { -not (Test-Path (Join-Path $Root "data\osrm-na-ferry\na-ferry.osrm.$_")) }
+    if ($missing) { "missing engine files: $($missing -join ', ')" | Tee-Object -FilePath $Log -Append | Out-Host }
+    $built = -not $missing
     $results['build engine'] = if ($built) { 'skipped (prebuilt engine)' } else { 'FAILED (no prebuilt engine)' }
 } else {
     $built = Step 'build engine' {
@@ -100,16 +108,14 @@ print(f"{bad} airport(s) over 5 km")
 
     foreach ($region in 'regional', 'national', 'continental') {
         Step "web map: $region" {
-            Set-Location $Iso
-            & $Py isochrone.py --region $region
-            Set-Location $Root
+            Push-Location $Iso      # try/finally: a failing step must not strand the cwd
+            try { & $Py isochrone.py --region $region } finally { Pop-Location }
         } | Out-Null
     }
     foreach ($fmt in 'feed', 'reel') {
         Step "video: $fmt" {
-            Set-Location $Iso
-            & $Py animate.py --format $fmt
-            Set-Location $Root
+            Push-Location $Iso
+            try { & $Py animate.py --format $fmt } finally { Pop-Location }
         } | Out-Null
     }
 }

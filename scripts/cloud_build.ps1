@@ -64,7 +64,8 @@ switch ($Action) {
         ScpFrom '~/engine.tgz' (Join-Path $Root 'data\engine.tgz')
         ScpFrom '~/reports.tgz' (Join-Path $Root 'data\reports.tgz')
         tar -xzf (Join-Path $Root 'data\engine.tgz') -C $dest
-        tar -xzf (Join-Path $Root 'data\reports.tgz') -C (Join-Path $Root 'data')
+        tar -xzf (Join-Path $Root 'data\reports.tgz') -C $Root     # data/build/*, benchmarks/*
+        ScpFrom '~/na-ferry.osm.pbf' (Join-Path $dest 'na-ferry.osm.pbf')   # for debugging
         Get-ChildItem $dest -File | Measure-Object Length -Sum | ForEach-Object { "engine: {0} files, {1:N1} GB" -f $_.Count, ($_.Sum / 1GB) }
     }
     'delete' {

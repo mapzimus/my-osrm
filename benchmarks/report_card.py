@@ -26,10 +26,17 @@ class NoRoute(Exception):
     """OSRM found no route at all (e.g. the destination is an unconnected island)."""
 
 
-def route(url: str, src: list[float], dst: list[float]) -> tuple[float, float, bool, float]:
-    """Return (miles, hours, used_ferry, destination snap in meters)."""
+def route(url: str, src: list[float], dst: list[float],
+          exclude: str = "") -> tuple[float, float, bool, float]:
+    """Return (miles, hours, used_ferry, destination snap in meters).
+
+    exclude: OSRM exclude classes ("motorway"), for cases that check a ferry
+    EXISTS where the free-flow drive around legitimately wins.
+    """
     coords = f"{src[0]},{src[1]};{dst[0]},{dst[1]}"
     req = f"{url}/route/v1/driving/{coords}?overview=false&steps=true"
+    if exclude:
+        req += f"&exclude={exclude}"
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.load(resp)
@@ -91,7 +98,7 @@ def main() -> int:
     print(f"\nReport card: {args.url} (engine={args.engine})\n")
     for case in cases:
         try:
-            miles, hours, ferry, snap_m = route(args.url, case["from"], case["to"])
+            miles, hours, ferry, snap_m = route(args.url, case["from"], case["to"], case.get("exclude", ""))
         except NoRoute:
             result = "PASS" if case["kind"] == "unreachable" else "FAIL"
             scored += 1
