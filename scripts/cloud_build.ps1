@@ -22,7 +22,7 @@ function G { & $G @args; if ($LASTEXITCODE) { throw "gcloud failed: $args" } }
 
 # gcloud's own ssh/scp wrappers insist on PuTTY on Windows; use the built-in
 # OpenSSH with the key registered in the instance metadata instead.
-$SshOpts = @('-i', $Key, '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=20')
+$SshOpts = @('-i', $Key, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=20')
 function VmIp { & $G compute instances describe $Vm --zone $Zone --format='value(networkInterfaces[0].accessConfigs[0].natIP)' }
 function Ssh([string]$cmd) { ssh @SshOpts "mhowe@$(VmIp)" $cmd; if ($LASTEXITCODE) { throw "ssh failed" } }
 function ScpTo([string]$src, [string]$dst) { scp @SshOpts $src "mhowe@$(VmIp):$dst"; if ($LASTEXITCODE) { throw "scp failed" } }
