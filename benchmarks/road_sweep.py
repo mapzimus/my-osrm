@@ -8,7 +8,7 @@ Checks:
   ONE-WAY     A reaches B but B can't reach A, or one direction > 1.5x slower (trap)
   CUT-OFF     mainland town unreachable from the country's biggest city
   DETOUR      road distance > 3.5x straight line for towns 30-400 km apart (missing link)
-  SPEED       average > 115 km/h over a whole trip (speed tag bug)
+  SPEED       average > 125 km/h over a whole trip (speed tag bug)
   BORDER      a road border crossing that can't be driven both ways, or is lopsided
 Writes benchmarks/road_sweep.md and road_sweep.json.
 """
@@ -91,7 +91,11 @@ def load_cities() -> dict[str, list[dict]]:
             continue
         q = (f'[out:json][timeout:180];area["ISO3166-1"="{iso}"][admin_level=2]->.a;'
              f'node[place~"^(city|town)$"](area.a);out;')
-        els = overpass(q)["elements"]
+        try:
+            els = overpass(q)["elements"]
+        except RuntimeError:
+            print(f"  {iso}: Overpass unavailable, skipped (rerun later to add it)", flush=True)
+            continue
         rows = [{"name": e["tags"].get("name", "?"), "lon": e["lon"], "lat": e["lat"],
                  "pop": pop(e["tags"]), "place": e["tags"]["place"]} for e in els]
         rows.sort(key=lambda r: (r["place"] != "city", -r["pop"]))
@@ -159,7 +163,7 @@ def country_checks(url: str, iso: str, towns: list[dict], mainland: bool) -> lis
                 flags.append({"kind": "DETOUR", "iso": iso,
                               "what": f"{ti} -> {tj}: {dist[i][j] / 1000:.0f} km road vs {s:.0f} km straight",
                               "at": pts[i], "to": pts[j]})
-            if dist[i][j] > 50_000 and (dist[i][j] / 1000) / (a / 3600) > 115:
+            if dist[i][j] > 50_000 and (dist[i][j] / 1000) / (a / 3600) > 125:  # 80 mph limits exist
                 flags.append({"kind": "SPEED", "iso": iso,
                               "what": f"{ti} -> {tj}: avg {(dist[i][j] / 1000) / (a / 3600):.0f} km/h",
                               "at": pts[i], "to": pts[j]})
@@ -176,30 +180,27 @@ def border_checks(url: str) -> list[dict]:
     d = 0.03  # ~3 km
 
     def one(r):
+        # Plain 2-point routes across the crossing on 4 axes. A forced
+        # waypoint ON the border node caused U-turns (charge counted 2-3x)
+        # and test points in water/dead ends make single axes lopsided, so
+        # flag only when NO axis gives a sane, symmetric pair.
         c = (r["lon"], r["lat"])
-        best = None
+        pairs = []
         for dx, dy in ((0, 1), (1, 0), (1, 1), (1, -1)):
             a = (c[0] + dx * d / math.cos(math.radians(c[1])), c[1] + dy * d)
             b = (c[0] - dx * d / math.cos(math.radians(c[1])), c[1] - dy * d)
             res = []
             for p, q in ((a, b), (b, a)):
-                j = get(f"{url}/route/v1/driving/{p[0]:.5f},{p[1]:.5f};{c[0]:.5f},{c[1]:.5f};{q[0]:.5f},{q[1]:.5f}"
-                        "?overview=false&continue_straight=false")
+                j = get(f"{url}/route/v1/driving/{p[0]:.5f},{p[1]:.5f};{q[0]:.5f},{q[1]:.5f}?overview=false")
                 res.append(j["routes"][0]["duration"] if j.get("code") == "Ok" else None)
-            if res[0] is not None and res[1] is not None:
-                if best is None or max(res) < max(best[1]):
-                    best = ((a, b), res)
-            elif best is None:
-                best = ((a, b), res)
-        (a, b), (f, g) = best
-        if f is None or g is None:
-            return {"kind": "BORDER", "iso": "--", "what": f"{r['name'] or 'unnamed'} (n{r['node']}): only one direction routes",
-                    "at": [r["lon"], r["lat"]]}
-        if min(f, g) > 600 and max(f, g) / min(f, g) > 2.0:
-            return {"kind": "BORDER", "iso": "--",
-                    "what": f"{r['name'] or 'unnamed'} (n{r['node']}): {f / 60:.0f} vs {g / 60:.0f} min through the crossing",
-                    "at": [r["lon"], r["lat"]]}
-        return None
+            pairs.append(res)
+        if any(f is not None and g is not None and max(f, g) <= 1.5 * max(min(f, g), 600)
+               for f, g in pairs):
+            return None
+        shown = ", ".join("—" if None in p else f"{p[0] / 60:.0f}/{p[1] / 60:.0f}" for p in pairs)
+        return {"kind": "BORDER", "iso": "--",
+                "what": f"{r['name'] or 'unnamed'} (n{r['node']}): no symmetric axis, min each way {shown}",
+                "at": [r["lon"], r["lat"]]}
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         return [x for x in pool.map(one, rows) if x]

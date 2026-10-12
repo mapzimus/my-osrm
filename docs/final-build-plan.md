@@ -27,6 +27,10 @@ crossing in both directions.
 - **Small river ferries go unused** (Oxford–Bellevue, Québec–Lévis, Millersburg and about 30 more). The flat 30-min boarding charge makes driving around win. This is policy, not a bug. Kept at 30 min unless Max decides otherwise.
 - North Ferry and Jamestown–Scotland report `one_way_only`. Each lane has its own ferry line, so routing is unaffected.
 - Belize water-taxi docks (car-free islands) are classed as `island`.
+- **Road sweep on the live engine** (830 towns in 31 countries plus all 455 road border crossings, both directions; `benchmarks/road_sweep.md`). Border charges are symmetric (about 20 min each way) everywhere except one crossing, and speeds are sane. Two side effects of keeping only major roads are accepted:
+  - A few town centres become one-way traps when the streets that close a one-way loop are residential. Example: San Ignacio de Acosta, Costa Rica, where leaving takes the 4WD-only Vía 301. That was 1–2 of 830 towns, and isochrones *from* Boston are unaffected.
+  - At Route 209 (Franklin NY / Covey Hill QC), the northbound inspection lanes are `service` roads, so northbound traffic uses the next crossing, about 27 min more. That was 1 of 455 crossings.
+- Not yet covered by the town sweep: Curaçao, Martinique, Guadeloupe (Overpass outages) and the Virgin Islands / Aruba (no towns tagged).
 
 ## Run order
 0. `create` ships the LOCAL scripts/ profiles/ tools/ benchmarks/ folders, not git. Run it from main after the merge, with `git status --short scripts profiles tools benchmarks` showing no modified files. Untracked caches like `cities.json` are harmless.
