@@ -301,6 +301,38 @@ def main() -> None:
     f_label, f_small = font("segoeuib.ttf", 21), font("segoeui.ttf", 19)
     f_clock, f_clock2 = font("bahnschrift.ttf", 92), font("bahnschrift.ttf", 40)
 
+    # Label positions, fixed once for the whole video (no jumping between
+    # frames). Each label scores its candidate spots (preferred side first,
+    # then the other side, then vertical nudges) by how much they overlap
+    # labels already placed or an inset that isn't theirs, and takes the
+    # lowest; ties go to the earlier, more natural spot. (Monterrey ran into
+    # Miami, Havana covered Cabo San Lucas, Cabo then slid into Hawaii.)
+    def overlap(a, b):
+        return max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+
+    taken = [(ox + 10, oy - 18, ox + 14 + f_label.getlength(args.name) + 4, oy + 14)]
+    inset_boxes = [i[0] for i in insets]
+    label_xy = {}
+    for hrs, nm, px, py in sorted(labels):
+        tw = f_label.getlength(f"{nm} {hrs:.1f} h")
+        left_first = nm in LEFT_LABELS
+        best = None
+        for dy in (0, -20, 20, -38, 38, -56, 56):
+            for left in (left_first, not left_first):
+                tx = px - 10 - tw if left else px + 10
+                box = (tx - 3, py - 14 + dy - 2, tx + tw + 3, py - 14 + dy + 27)
+                if box[0] < 8 or box[2] > W - 8:
+                    continue
+                cost = sum(overlap(box, b) for b in taken)
+                cost += sum(3 * overlap(box, ib) for ib in inset_boxes
+                            if not (ib[0] <= px <= ib[2] and ib[1] <= py <= ib[3]))
+                cost += abs(dy) * 0.5          # mild preference for the dot's own line
+                if best is None or cost < best[0]:
+                    best = (cost, tx, py - 14 + dy, box)
+        _, tx, ty, box = best
+        taken.append(box)
+        label_xy[nm] = (tx, ty)
+
     out_dir = iso.OUT
     out_dir.mkdir(exist_ok=True)
     mp4 = out_dir / f"wave_{args.name.lower()}_{args.format}.mp4"
@@ -363,12 +395,13 @@ def main() -> None:
             alpha = min(1.0, (t - hrs) / 1.5 + 0.35)
             fill = tuple(int(c * alpha + WATER[k] * (1 - alpha)) for k, c in enumerate(INK))
             text = f"{nm} {hrs:.1f} h"
-            tw = d.textlength(text, font=f_label)
-            tx = px - 10 - tw if nm in LEFT_LABELS else px + 10
-            if tx + tw > W - 8:                     # would leave the frame: flip left
-                tx = px - 10 - tw
+            tx, ty = label_xy[nm]
+            if abs(ty - (py - 14)) >= 20:          # nudged off its dot: leader line
+                tw = f_label.getlength(text)
+                ex = tx - 2 if tx > px else tx + tw + 2
+                d.line((px, py, ex, ty + 14), fill=fill, width=2)
             d.ellipse((px - 4, py - 4, px + 4, py + 4), fill=fill, outline=(13, 17, 23))
-            d.text((tx, py - 14), text, font=f_label, fill=fill,
+            d.text((tx, ty), text, font=f_label, fill=fill,
                    stroke_width=3, stroke_fill=tuple(int(v) for v in WATER))
 
         # Clock + day bar.
