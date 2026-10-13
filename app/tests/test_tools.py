@@ -146,7 +146,7 @@ to = {PLB}
 max_miles = 400
 """)
     monkeypatch.setattr(benchmarks.router, "routes_file", toml, raising=False)
-    monkeypatch.setattr(benchmarks.report_card, "route", lambda url, a, b: (150.0, 3.0, False, 10.0) if b == PLB else (3000.0, 50.0, False, 10.0))
+    monkeypatch.setattr(benchmarks.report_card, "route", lambda url, a, b, exclude="": (150.0, 3.0, False, 10.0) if b == PLB else (3000.0, 50.0, False, 10.0))
     assert len(client.get("/api/benchmarks/cases").json()) == 3
     job = client.post("/api/benchmarks/run", json={"engine": "us-major"}).json()
     res = wait_job(client, job["id"])

@@ -39,9 +39,9 @@ class RunIn(BaseModel):
 def run_case(url: str, scope: str, case: dict) -> dict:
     out = {"index": case["index"], "name": case["name"], "kind": case["kind"], "needs": case["needs"],
            "from": case["from"], "to": case["to"], "note": case.get("note", ""), "max_miles": case.get("max_miles"),
-           "band": case.get("hours")}
+           "band": case.get("hours"), "exclude": case.get("exclude", "")}
     try:
-        miles, hours, ferry, snap_m = report_card.route(url, case["from"], case["to"])
+        miles, hours, ferry, snap_m = report_card.route(url, case["from"], case["to"], case.get("exclude", ""))
     except report_card.NoRoute:
         out.update(result="PASS" if case["kind"] == "unreachable" else "FAIL", status="no route")
         return out
@@ -63,6 +63,8 @@ def with_geometry(url: str, rows: list[dict]) -> None:
             return
         coords = f"{r['from'][0]},{r['from'][1]};{r['to'][0]},{r['to'][1]}"
         req = f"{url}/route/v1/driving/{coords}?overview=simplified&geometries=geojson&steps=false"
+        if r.get("exclude"):              # draw the same route the case was scored on
+            req += f"&exclude={r['exclude']}"
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 r["geometry"] = json.load(resp)["routes"][0]["geometry"]

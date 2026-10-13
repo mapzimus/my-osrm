@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -42,12 +43,15 @@ MIN_FLIGHT_H = 2.5                                  # ~6 frames at the slow end 
 EXTRA_CITIES = {"Havana": (-82.3666, 23.1136), "Nassau": (-77.3554, 25.0480),
                 "Port of Spain": (-61.5190, 10.6596), "Bermuda": (-64.7814, 32.2949),
                 "Nuuk": (-51.7216, 64.1814), "Iqaluit": (-68.5170, 63.7467),
-                "Utqiagvik": (-156.7886, 71.2906)}
+                "Utqiagvik": (-156.7886, 71.2906),
+                # The last place to light up (Alaska Marine Highway via Homer):
+                # without a label the video's final ~50 h showed nothing happening.
+                "Dutch Harbor": (-166.5418, 53.8898)}
 
 FONTS = Path("C:/Windows/Fonts")
 FPS = 30
-WAVE_SECONDS = 14
-HOLD_SECONDS = 2.5
+WAVE_SECONDS = 28                                    # half speed (was 14 / 2.5)
+HOLD_SECONDS = 5
 SS = 2                                   # supersampling for smooth edges
 
 WATER = np.array([13, 17, 23], dtype=np.float32)
@@ -63,7 +67,8 @@ VIDEO_CITIES = [
     "Monterrey", "Mexico City", "Cancún", "Cabo San Lucas", "Guatemala City",
     "Panama City", "Honolulu", "Hilo", "San Juan",
 ]
-LEFT_LABELS = {"Seattle", "San Francisco", "Los Angeles", "Anchorage", "Key West",
+LEFT_LABELS = {"Seattle", "San Francisco", "Los Angeles", "Key West",   # Anchorage: right,
+                                                       # its left label covered the Aleutians
                "Chicago", "St. John's NL", "Miami", "Havana", "Cancún", "San Juan",
                "Iqaluit"}                   # right-side text ran under the Greenland inset
 
@@ -239,8 +244,8 @@ def main() -> None:
     insets = []                      # (box, layer data, to_px, label, region)
     for xy, proj, keep, label, region in (
         (INSET_XY, Albers(lon0=-157.3, lat0=20.5, lat1=19.0, lat2=22.0), in_hawaii, "Hawaii", hw),
-        (GREENLAND_XY, Albers(lon0=-52.0, lat0=66.0, lat1=63.0, lat2=70.0), in_greenland,
-         "Greenland", gl),
+        # Greenland inset dropped from the video (Max, 2026-10-12): Greenland
+        # stays off the main map too (keep= above), and its flights are cut.
     ):
         if not (valid & keep).any():
             continue
@@ -253,6 +258,15 @@ def main() -> None:
 
     finite = np.concatenate([H[np.isfinite(H)]] + [i[1][np.isfinite(i[1])] for i in insets])
     t_end = float(np.ceil(finite.max()))
+    if os.environ.get("ANIMATE_DEBUG"):     # where is the slowest drawn pixel?
+        Hs = np.where(np.isfinite(H), H, -1)
+        for q in (60, 85, 95, 110, 130):
+            yy, xx = np.where(Hs > q)
+            if len(yy):
+                print(f">{q} h: {len(yy)} px, x {xx.min() / SS + box[0]:.0f}-{xx.max() / SS + box[0]:.0f}, "
+                      f"y {yy.min() / SS + box[1]:.0f}-{yy.max() / SS + box[1]:.0f}")
+        print("t_end", t_end, "Dutch Harbor px", tuple(round(float(v)) for v in to_px(-166.5418, 53.8898)))
+        sys.exit(0)
     n_bands = int(t_end)
     pal = iso.palette_for(n_bands)[:, :3].astype(np.float32)
     days = math.ceil(n_bands / iso.DAY_HOURS)
@@ -281,11 +295,23 @@ def main() -> None:
         if not c:
             continue
         hrs = c["hours"] if c["hours"] is not None else iso.sample(reach, lons, lats, c["lon"], c["lat"])
-        if hrs is not None:
-            labels.append((hrs, nm, *place(c["lon"], c["lat"])))
+        if hrs is not None and not (gl[0] <= c["lon"] <= gl[2] and gl[1] <= c["lat"] <= gl[3]):
+            labels.append((hrs, nm, *place(c["lon"], c["lat"])))   # no Greenland (no inset)
+    def sample_near(lon, lat, r=4):
+        """Nearest reached land cell within r cells: a harbour town's own cell
+        is often water on the 0.05-degree land mask (Dutch Harbor was)."""
+        iy, ix = int(np.abs(lats - lat).argmin()), int(np.abs(lons - lon).argmin())
+        win = reach[max(iy - r, 0):iy + r + 1, max(ix - r, 0):ix + r + 1]
+        ok = np.argwhere(np.isfinite(win))
+        if not len(ok):
+            return None
+        c = np.array([min(iy, r), min(ix, r)])
+        y, x = ok[np.abs(ok - c).sum(axis=1).argmin()]
+        return round(float(win[y, x]), 2)
+
     for nm, (lon, lat) in EXTRA_CITIES.items():
-        hrs = iso.sample(reach, lons, lats, lon, lat)
-        if hrs is not None:
+        hrs = sample_near(lon, lat)
+        if hrs is not None and not (gl[0] <= lon <= gl[2] and gl[1] <= lat <= gl[3]):
             labels.append((hrs, nm, *place(lon, lat)))
     ox, oy = (float(v) for v in to_px(*origin))
 
@@ -294,12 +320,48 @@ def main() -> None:
     # so compute_hours doesn't return it).
     if legs:
         legs = flights.plan(iso.drive_to_airports(URL, origin))
+    def in_gl(code):
+        _, lon, lat = flights.AIRPORTS[code]
+        return gl[0] <= lon <= gl[2] and gl[1] <= lat <= gl[3]
+    legs = [leg for leg in legs if not (in_gl(leg.src) or in_gl(leg.dst))]
     paths = [(leg, arc(place(*flights.AIRPORTS[leg.src][1:]), place(*flights.AIRPORTS[leg.dst][1:]),
                        lift=0.22 if leg.src == "BOS" else 0.35)) for leg in legs]
 
     f_title, f_sub = font("segoeuib.ttf", 46), font("segoeui.ttf", 26)
     f_label, f_small = font("segoeuib.ttf", 21), font("segoeui.ttf", 19)
     f_clock, f_clock2 = font("bahnschrift.ttf", 92), font("bahnschrift.ttf", 40)
+
+    # Label positions, fixed once for the whole video (no jumping between
+    # frames). Each label scores its candidate spots (preferred side first,
+    # then the other side, then vertical nudges) by how much they overlap
+    # labels already placed or an inset that isn't theirs, and takes the
+    # lowest; ties go to the earlier, more natural spot. (Monterrey ran into
+    # Miami, Havana covered Cabo San Lucas, Cabo then slid into Hawaii.)
+    def overlap(a, b):
+        return max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+
+    taken = [(ox + 10, oy - 18, ox + 14 + f_label.getlength(args.name) + 4, oy + 14)]
+    inset_boxes = [i[0] for i in insets]
+    label_xy = {}
+    for hrs, nm, px, py in sorted(labels):
+        tw = f_label.getlength(f"{nm} {hrs:.1f} h")
+        left_first = nm in LEFT_LABELS
+        best = None
+        for dy in (0, -20, 20, -38, 38, -56, 56):
+            for left in (left_first, not left_first):
+                tx = px - 10 - tw if left else px + 10
+                box = (tx - 3, py - 14 + dy - 2, tx + tw + 3, py - 14 + dy + 27)
+                if box[0] < 8 or box[2] > W - 8:
+                    continue
+                cost = sum(overlap(box, b) for b in taken)
+                cost += sum(3 * overlap(box, ib) for ib in inset_boxes
+                            if not (ib[0] <= px <= ib[2] and ib[1] <= py <= ib[3]))
+                cost += abs(dy) * 0.5          # mild preference for the dot's own line
+                if best is None or cost < best[0]:
+                    best = (cost, tx, py - 14 + dy, box)
+        _, tx, ty, box = best
+        taken.append(box)
+        label_xy[nm] = (tx, ty)
 
     out_dir = iso.OUT
     out_dir.mkdir(exist_ok=True)
@@ -348,7 +410,7 @@ def main() -> None:
                 draw_plane(d, x, y, ang, 1.5 if leg.dst in BIG_PLANES else 0.9)
 
         # Origin: pulsing dot.
-        pulse = 7 + 4 * (0.5 + 0.5 * math.sin(i / FPS * 2 * math.pi * 1.2))
+        pulse = 7 + 4 * (0.5 + 0.5 * math.sin(i / FPS * 2 * math.pi * 0.6))
         # Dark under-ring: the origin sits on inferno's brightest yellow.
         d.ellipse((ox - pulse - 2, oy - pulse - 2, ox + pulse + 2, oy + pulse + 2),
                   outline=tuple(int(v) for v in WATER), width=2)
@@ -363,12 +425,13 @@ def main() -> None:
             alpha = min(1.0, (t - hrs) / 1.5 + 0.35)
             fill = tuple(int(c * alpha + WATER[k] * (1 - alpha)) for k, c in enumerate(INK))
             text = f"{nm} {hrs:.1f} h"
-            tw = d.textlength(text, font=f_label)
-            tx = px - 10 - tw if nm in LEFT_LABELS else px + 10
-            if tx + tw > W - 8:                     # would leave the frame: flip left
-                tx = px - 10 - tw
+            tx, ty = label_xy[nm]
+            if abs(ty - (py - 14)) >= 20:          # nudged off its dot: leader line
+                tw = f_label.getlength(text)
+                ex = tx - 2 if tx > px else tx + tw + 2
+                d.line((px, py, ex, ty + 14), fill=fill, width=2)
             d.ellipse((px - 4, py - 4, px + 4, py + 4), fill=fill, outline=(13, 17, 23))
-            d.text((tx, py - 14), text, font=f_label, fill=fill,
+            d.text((tx, ty), text, font=f_label, fill=fill,
                    stroke_width=3, stroke_fill=tuple(int(v) for v in WATER))
 
         # Clock + day bar.

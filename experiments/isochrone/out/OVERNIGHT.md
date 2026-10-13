@@ -1,16 +1,16 @@
-# Overnight run - 2026-10-11 22:24
+# Overnight run - 2026-10-12 06:39
 
 | Step | Result |
 |---|---|
 | build engine | skipped (prebuilt engine) |
-| start engine | ok (0.6 min) |
+| start engine | ok (0.7 min) |
 | airport snaps | ok (0 min) |
 | report card | ok (0 min) |
 | web map: regional | ok (0.2 min) |
-| web map: national | ok (1.2 min) |
-| web map: continental | ok (8.7 min) |
-| video: feed | ok (3.7 min) |
-| video: reel | ok (3.7 min) |
+| web map: national | ok (1.4 min) |
+| web map: continental | ok (9.2 min) |
+| video: feed | ok (3.6 min) |
+| video: reel | ok (3.5 min) |
 
 ## Report card
 ```
@@ -36,7 +36,7 @@ Report card: http://127.0.0.1:5002 (engine=na)
   PASS      62 mi   4.6 h ferry  Ludington MI -> Manitowoc WI (SS Badger)
   PASS      20 mi   1.4 h ferry  Haines AK -> Skagway AK (Alaska Marine Highway)
   PASS      25 mi   2.5 h ferry  Port Angeles WA -> Victoria BC (Coho)
-  FAIL     120 mi   4.3 h ferry  Vancouver BC -> Victoria BC (BC Ferries)
+  PASS      71 mi   3.2 h ferry  Vancouver BC -> Victoria BC (BC Ferries)
   PASS     115 mi   7.6 h ferry  North Sydney NS -> Port aux Basques NL (Marine Atlantic)
   PASS      47 mi   1.6 h        Bellingham WA -> Point Roberts WA (US exclave, via Canada)
   PASS      64 mi   2.0 h        Warroad MN -> Angle Inlet MN (Northwest Angle, via Manitoba)
@@ -54,10 +54,12 @@ Report card: http://127.0.0.1:5002 (engine=na)
   PASS     248 mi   3.9 h        Atlanta -> Nashville (control)
   PASS     340 mi   5.5 h        Toronto -> Montreal (control)
   PASS      29 mi   2.3 h ferry  Tobermory ON -> South Baymouth ON (Chi-Cheemaun)
-  FAIL      65 mi   1.2 h        Seattle -> Bremerton (WSF)
+  PASS      17 mi   1.6 h ferry  Seattle -> Bremerton (WSF)
   PASS      90 mi   3.3 h ferry  Milwaukee WI -> Muskegon MI (Lake Express)
+  PASS      26 mi   2.2 h ferry  Courtenay -> Powell River (Little River ferry)
+  PASS      72 mi   3.3 h ferry  Victoria -> Vancouver (Swartz Bay-Tsawwassen)
 
-Score: 37/39
+Score: 41/41
 
 ```
 

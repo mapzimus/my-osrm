@@ -24,9 +24,9 @@ function G { & $G @args; if ($LASTEXITCODE) { throw "gcloud failed: $args" } }
 # OpenSSH with the key registered in the instance metadata instead.
 $SshOpts = @('-i', $Key, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=20')
 function VmIp { & $G compute instances describe $Vm --zone $Zone --format='value(networkInterfaces[0].accessConfigs[0].natIP)' }
-function Ssh([string]$cmd) { ssh @SshOpts "mhowe@$(VmIp)" $cmd; if ($LASTEXITCODE) { throw "ssh failed" } }
-function ScpTo([string]$src, [string]$dst) { scp @SshOpts $src "mhowe@$(VmIp):$dst"; if ($LASTEXITCODE) { throw "scp failed" } }
-function ScpFrom([string]$src, [string]$dst) { scp @SshOpts "mhowe@$(VmIp):$src" $dst; if ($LASTEXITCODE) { throw "scp failed" } }
+function VmSsh([string]$cmd) { ssh.exe @SshOpts "mhowe@$(VmIp)" $cmd; if ($LASTEXITCODE) { throw "ssh failed" } }
+function ScpTo([string]$src, [string]$dst) { scp.exe @SshOpts $src "mhowe@$(VmIp):$dst"; if ($LASTEXITCODE) { throw "scp failed" } }
+function ScpFrom([string]$src, [string]$dst) { scp.exe @SshOpts "mhowe@$(VmIp):$src" $dst; if ($LASTEXITCODE) { throw "scp failed" } }
 
 switch ($Action) {
     'create' {
@@ -52,11 +52,11 @@ switch ($Action) {
         Set-Location $Root
         tar -czf $bundle scripts profiles tools benchmarks docker-compose.yml
         ScpTo $bundle '~/bundle.tgz'
-        Ssh 'mkdir -p my-osrm && tar xzf bundle.tgz -C my-osrm && chmod +x my-osrm/scripts/*.sh && (nohup bash my-osrm/scripts/cloud_remote.sh > build.log 2>&1 &)'
+        VmSsh 'mkdir -p my-osrm && tar xzf bundle.tgz -C my-osrm && chmod +x my-osrm/scripts/*.sh && (nohup bash my-osrm/scripts/cloud_remote.sh > build.log 2>&1 &)'
         "started; poll with: pwsh -File scripts/cloud_build.ps1 status"
     }
     'status' {
-        Ssh "grep -E '^==|\[run\]|\[skip\]|\[redo\]|rror|Traceback|ferries:|crossings:|BUILD_DONE' build.log | tail -25; ls BUILD_DONE 2>/dev/null && echo DONE"
+        VmSsh "grep -E '^==|\[run\]|\[skip\]|\[redo\]|rror|Traceback|ferries:|crossings:|BUILD_DONE' build.log | tail -25; ls BUILD_DONE 2>/dev/null && echo DONE"
     }
     'fetch' {
         $dest = Join-Path $Root 'data\osrm-na-ferry'

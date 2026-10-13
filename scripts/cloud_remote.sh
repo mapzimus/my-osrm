@@ -25,7 +25,11 @@ echo "== $(date) verify on the VM (before anything is fetched)"
 # Serve the engine here and run the report card + ferry sweep, so a bad build
 # is caught while every intermediate file still exists to debug it.
 sudo docker rm -f verify-osrm >/dev/null 2>&1 || true
-sudo docker run -d --name verify-osrm -p 5002:5000 -v "$PWD/data/osrm-na-ferry:/data:ro"     "$(grep -m1 'image: ghcr.io/project-osrm' docker-compose.yml | awk '{print $2}')"     osrm-routed --algorithm mld --max-table-size 8000 /data/na-ferry.osrm
+# tr -d '\r': the bundle is tarred on Windows, so docker-compose.yml has CRLF
+# endings and the image name kept a trailing \r ("invalid reference format").
+OSRM_IMAGE="$(grep -m1 'image: ghcr.io/project-osrm' docker-compose.yml | awk '{print $2}' | tr -d '\r')"
+sudo docker run -d --name verify-osrm -p 5002:5000 -v "$PWD/data/osrm-na-ferry:/data:ro" \
+    "$OSRM_IMAGE" osrm-routed --algorithm mld --max-table-size 8000 /data/na-ferry.osrm
 for i in $(seq 1 60); do curl -sf "http://127.0.0.1:5002/route/v1/driving/-77.0,38.9;-77.0,38.91" >/dev/null && break; sleep 10; done
 python3 benchmarks/report_card.py --url http://127.0.0.1:5002 --engine na | tee "$HOME/report_card.txt" || true
 python3 benchmarks/ferry_sweep.py --url http://127.0.0.1:5002 || true

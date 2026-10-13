@@ -31,6 +31,7 @@ function turnText(s) {
 
 export async function init(ctx) {
   let result = null;
+  let fitOnce = false;     // a route opened from a link zooms to itself (unless the link set a view)
   let timer = null;
   const pts = pointList(ctx, { onChange: schedule });
   const summary = h("div");
@@ -61,6 +62,7 @@ export async function init(ctx) {
     status("");
     if (!r) { clear(true); return; }
     result = r;
+    if (fitOnce) { fitOnce = false; ctx.layers.fit(r.geometry); }
     const names = pts.points.map((p, i) => p.name || `Stop ${i + 1}`);
     ctx.layers.setGeoJSON("route", {
       type: "FeatureCollection",
@@ -107,7 +109,7 @@ export async function init(ctx) {
 
   ctx.onMapClick((lonlat) => pts.add(lonlat));
   ctx.engines.on(() => pts.points.length >= 2 && run());
-  if (pts.parse(stateKey.get())) { /* restored from URL */ }
+  if (pts.parse(stateKey.get()) && !ctx.globalState.get("v")) fitOnce = true;
   stateKey.on((v) => { if (v !== pts.serialize()) { if (!v) pts.clear(); else pts.parse(v); } });
 
   return {
