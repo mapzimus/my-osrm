@@ -255,10 +255,12 @@ def main() -> None:
         d.ellipse((ox - pulse - 2, oy - pulse - 2, ox + pulse + 2, oy + pulse + 2), outline=WATER_T, width=2)
         d.ellipse((ox - pulse, oy - pulse, ox + pulse, oy + pulse), outline=A.INK, width=2)
         d.ellipse((ox - 5, oy - 5, ox + 5, oy + 5), fill=A.INK, outline=WATER_T)
-        d.text((ox + 14, oy - 14), args.name, font=f_label, fill=A.INK, stroke_width=3, stroke_fill=WATER_T)
+        nw = f_label.getlength(args.name)
+        nx = ox + 14 if ox + 14 + nw < bw - 4 else ox - 14 - nw   # flip left at the edge
+        d.text((nx, oy - 14), args.name, font=f_label, fill=A.INK, stroke_width=3, stroke_fill=WATER_T)
 
         # --- labels: least-overlap layout per frame, sticky to last frame's spot
-        taken = [(ox + 10, oy - 18, ox + 14 + f_label.getlength(args.name) + 4, oy + 14)]
+        taken = [(min(nx, ox) - 4, oy - 18, max(nx + nw, ox) + 4, oy + 14)]
         inset_live = ha > 0.05
         for hrs, nm, lon, lat, hi in labels:
             if t < hrs or (hi and not inset_live) or wu * 6371 > CLOSE_ONLY.get(nm, 1e9):

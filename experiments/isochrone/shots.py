@@ -32,7 +32,8 @@ KEYS = [
     (30.0,  92.0, -128.0, 49.0, 8600),     # Prudhoe, Panama done; swing to Alaska
     (33.5, 110.0, -157.0, 52.4, 1900),     # Alaska Peninsula: the ferry chain
     (37.0,  "END", -163.5, 52.4, 1050),    # Dutch Harbor lights up
-    (41.0,  "END", "FULL", "FULL", "FULL"),  # pull out to the whole continent
+    (39.0,  "END", -150.0, 57.0, 5200),    # zoom out first, over Alaska...
+    (41.5,  "END", "FULL", "FULL", "FULL"),  # ...then settle on the whole continent
     (DURATION, "END", "FULL", "FULL", "FULL"),
 ]
 
