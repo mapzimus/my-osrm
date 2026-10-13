@@ -21,3 +21,6 @@ __pycache__/
 
 # Overnight run log (experiments/isochrone/out/OVERNIGHT.md is the summary)
 experiments/isochrone/out/*.log
+
+# Optimal Drives renders (re-made by video.py; post from out/, never commit)
+experiments/college_tour/out/
