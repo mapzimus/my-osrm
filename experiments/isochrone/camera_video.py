@@ -47,6 +47,24 @@ INSET = (14, 610, 344, 886)
 WATER_T = tuple(int(v) for v in A.WATER)
 
 
+def subtitle_lines(name: str, fnt, max_w: float) -> list[str]:
+    """The subtitle (Max's wording, 2026-10-12): one sentence per line,
+    word-wrapped only if a sentence is wider than max_w px."""
+    lines = []
+    for sentence in (f"Drive time from {name} to all of North America.",
+                     "Places inaccessible by road are flown to and then calculated."):
+        cur = ""
+        for word in sentence.split():
+            trial = f"{cur} {word}".strip()
+            if cur and fnt.getlength(trial) > max_w:
+                lines.append(cur)
+                cur = word
+            else:
+                cur = trial
+        lines.append(cur)
+    return lines
+
+
 def load_region(name: str, region, fill_km: float = iso.FILL_KM):
     """Hours (driving + flights, nearest-road filled), valid land, land, grid."""
     hours, lons, lats, step, key, legs = iso.compute_hours(A.URL, name, A.ORIGIN, region)
@@ -305,9 +323,8 @@ def main() -> None:
         canvas.paste(mapimg, (bx0, by0))
         dc = ImageDraw.Draw(canvas)
         dc.text((40, title_y), f"How far can you drive from {args.name}?", font=f_title, fill=A.INK)
-        dc.text((42, title_y + 64),
-                f"Drive time from {'Boston City Hall' if args.name == 'Boston' else args.name}."
-                " Islands: fly from Logan, then drive.", font=f_sub, fill=A.MUTED)
+        for k, line in enumerate(subtitle_lines(args.name, f_sub, W - 84)):
+            dc.text((42, title_y + 64 + 34 * k), line, font=f_sub, fill=A.MUTED)
         hy = by1 + 30
         cur_day = min(days, int(t // iso.DAY_HOURS) + 1)
         dc.text((40, hy), f"DAY {cur_day}", font=f_clock, fill=A.INK)
