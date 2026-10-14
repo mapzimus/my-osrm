@@ -58,7 +58,7 @@ before building.
 - A 50-store run of the whole pipeline first. Its LKH-3 tour is checked by
   hand, and against OR-Tools on the same 50 stores.
 - Checks on the full tour: each store exactly once; the leg times sum to the
-  total; no driving leg over 12 h; flights only where no road path exists.
+  total; no driving leg over 12 h except the road legs to and from Alaska; flights only where no road path exists.
 - Stills checked at hook, a dive, an island leg and the end card before the
   full render.
 
