@@ -54,3 +54,11 @@ def test_check_tour_long_legs():
     with pytest.raises(AssertionError):
         B.check_tour({**base, "legs": [dict(h=13, ferry=False, alaska=False)]}, 2)
     B.check_tour({**base, "legs": [dict(h=40, ferry=False, alaska=True)]}, 2)       # Alaska: allowed
+
+
+def test_label_stays_in_the_us():
+    stops = [dict(lon=-99.473641, lat=27.453348), dict(lon=-93.43404, lat=48.608528),   # Laredo TX, Intl Falls MN
+             dict(lon=-65.997048, lat=18.393401)]                                       # Puerto Rico
+    B.label(stops)
+    assert [s["state"] for s in stops] == ["Texas", "Minnesota", "Puerto Rico"]
+    assert stops[0]["town"] != "Nuevo Laredo" and stops[2]["town"] != "Key Largo"

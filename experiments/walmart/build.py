@@ -66,6 +66,38 @@ def check_tour(tour: dict, n: int) -> None:
     assert all(leg["h"] <= MAX_DRIVE_LEG_H or leg.get("alaska") for leg in tour["legs"]), "no driving leg over 12 h"
 
 
+PR_BOX = (-68.0, 17.5, -65.0, 18.7)
+
+
+def label(stops: list[dict]) -> None:
+    """State and nearest town, US only. P.label also searches Canada and Mexico
+    (Laredo's store came out "Nuevo Laredo, Tamaulipas"), and Puerto Rico's
+    towns are in the places index under CAM, not US."""
+    import sqlite3
+
+    import shapefile
+    from shapely.geometry import Point, shape
+    from shapely.strtree import STRtree
+    sf = shapefile.Reader(str(HERE.parents[1] / "data" / "naturalearth" / "ne_10m_admin_1_states_provinces"
+                              / "ne_10m_admin_1_states_provinces.shp"))
+    geoms, names = [], []
+    for s, r in zip(sf.shapes(), sf.records()):
+        if r["adm0_a3"] in ("USA", "PRI"):
+            geoms.append(shape(s.__geo_interface__))
+            names.append(r["name"])
+    tree = STRtree(geoms)
+    db = sqlite3.connect(HERE.parents[1] / "data" / "app" / "places.sqlite")
+    towns = db.execute("select name, lon, lat from places where kind in ('city','town','village') and "
+                       "(country = 'US' or (country = 'CAM' and lon between ? and ? and lat between ? and ?))",
+                       (PR_BOX[0], PR_BOX[2], PR_BOX[1], PR_BOX[3])).fetchall()
+    tl = np.array([(t[1], t[2]) for t in towns])
+    for s in stops:
+        s["state"] = names[tree.nearest(Point(s["lon"], s["lat"]))]
+        k = math.cos(math.radians(s["lat"]))
+        d2 = ((tl[:, 0] - s["lon"]) * k) ** 2 + (tl[:, 1] - s["lat"]) ** 2
+        s["town"] = towns[int(d2.argmin())][0]
+
+
 def region(s: dict) -> str:
     if s["region"] == "puerto-rico":
         return "PR"
@@ -222,7 +254,7 @@ def main() -> None:
         named = {k: v for k, v in f.pop("names").items()
                  if k != "Ferry" and not any(w in k for w in ("Approach", "Berth", "Ramp", "Terminal"))}
         f["name"] = max(named, key=named.get) if named else "Ferry"
-    P.label(stops)
+    label(stops)
     hours = clock / 3600
     fly_h = sum(f["t1"] - f["t0"] for f in flights) / 3600
     tour = dict(stops=stops, coords=coords, t=t, dist=dists, mode=mode, flights=flights, ferries=ferries,
