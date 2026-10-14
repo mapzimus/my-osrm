@@ -230,3 +230,121 @@ Check off ideas as they get made. Coverage caveat: confirm whether the US extrac
 - [ ] 201. Every town called Salem (Halloween drop, end in Salem, MA)
 - [ ] 202. Draw the lower 48's state borders using only roads: the closest drivable path along every border
 - [ ] 203. Dunkin' vs. Starbucks flood: every store "leaves" at once, drive-time fronts spread out along roads (Dunkin' orange, Starbucks green) until they collide. Ends on an art-print map of the border between them.
+
+## Batch 4 (204–303)
+
+### Flood maps (same idea as #203, every location starts at once)
+- [ ] 204. McDonald's vs. Burger King
+- [ ] 205. Walmart vs. Target
+- [ ] 206. Home Depot vs. Lowe's
+- [ ] 207. CVS vs. Walgreens
+- [ ] 208. Waffle House vs. IHOP
+- [ ] 209. Wawa vs. Sheetz (the real Pennsylvania frontline)
+- [ ] 210. Tim Hortons vs. Starbucks in Canada
+- [ ] 211. OXXO vs. 7-Eleven in Mexico
+- [ ] 212. Every hospital (the gaps are medical deserts)
+- [ ] 213. Every fire station
+- [ ] 214. Every public library
+- [ ] 215. Every post office
+- [ ] 216. Every brewery (amber)
+- [ ] 217. Every church vs. every bar
+- [ ] 218. Every Dollar General (watch it swallow rural America)
+- [ ] 219. Every Cracker Barrel
+- [ ] 220. Every national park: where's farthest from wilderness
+
+### Art maps
+- [ ] 221. Every road colored by drive time from your house (poster)
+- [ ] 222. All roads lead to one city: routes from every county seat, line width by overlap
+- [ ] 223. Same, one per state, to each capital
+- [ ] 224. Every town to its nearest coast, drawn like river basins
+- [ ] 225. Every town to its nearest interstate (tree structure)
+- [ ] 226. Walmart watersheds: every town to its nearest Walmart
+- [ ] 227. Routes between every pair of the top 100 cities, stacked
+- [ ] 228. Drive-time contour lines styled like a topo map
+- [ ] 229. Isochrone rings as tree rings
+- [ ] 230. Neon interstates, brightness by how many fastest routes use them
+- [ ] 231. The interstates redrawn as a subway map
+- [ ] 232. Fireworks: routes bursting out of one city for July 4th
+- [ ] 233. States resized by drive-time diameter
+- [ ] 234. The spine of America: roads used by any cross-country fastest route
+- [ ] 235. Lonely roads: the ones no fastest route ever uses
+- [ ] 236. One city's isochrone animated to music
+- [ ] 237. Every Starbucks connected in one optimal tour, drawn as a single line
+
+### Games and viewer formats
+- [ ] 238. Guess the city from its isochrone silhouette
+- [ ] 239. Drive-time "higher or lower"
+- [ ] 240. Road trip spelling your name, one town per letter
+- [ ] 241. Route roulette: two random coordinates, where does it go
+- [ ] 242. Dartboard road trip: darts on a map, solve the tour
+- [ ] 243. Viewer TSP: five commenter cities, solved on screen
+- [ ] 244. Viewer hometown duels: whose town reaches more in 2 hours
+- [ ] 245. Rivalry drives: every college rivalry, shortest to longest (Duke–UNC to the extremes)
+- [ ] 246. Boston to New York, every possible route ranked
+- [ ] 247. Ohio State to Michigan on rivalry weekend
+- [ ] 248. Meet in the middle: fairest drive-time meeting point for two cities
+- [ ] 249. Fairest meeting point for a whole family spread across states
+- [ ] 250. Pick the fastest route: three options, viewers guess
+
+### History routes, then vs. now
+- [ ] 251. Underground Railroad routes
+- [ ] 252. Trail of Tears
+- [ ] 253. The 1919 Army transcontinental convoy: 62 days vs. today
+- [ ] 254. Great Migration: Mississippi to Chicago
+- [ ] 255. Paul Revere's ride by car
+- [ ] 256. Gold Rush: Independence to Sutter's Mill
+- [ ] 257. Chisholm Trail
+- [ ] 258. Selma to Montgomery
+- [ ] 259. Steinbeck's Travels with Charley
+- [ ] 260. The Grapes of Wrath: Oklahoma to California
+- [ ] 261. Butch Cassidy's Outlaw Trail
+- [ ] 262. Bonnie and Clyde's run
+- [ ] 263. Mormon Trail
+- [ ] 264. All 21 California missions
+- [ ] 265. Camino Real de Tierra Adentro: Mexico City to Santa Fe
+
+### Nature and seasons
+- [ ] 266. Chasing peak fall foliage south
+- [ ] 267. Chasing spring north
+- [ ] 268. Every waterfall in one state
+- [ ] 269. Every dark-sky park
+- [ ] 270. Following the monarch migration, Canada to Michoacán
+- [ ] 271. Mississippi River source to mouth
+- [ ] 272. Tornado Alley tour
+- [ ] 273. Planning the 2045 eclipse drive
+- [ ] 274. Snowbird migration: Toronto and Montreal to Florida
+- [ ] 275. Every drivable volcano and geyser field
+
+### Sports and tours
+- [ ] 276. One NFL team's road schedule, driven
+- [ ] 277. One MLB season by bus
+- [ ] 278. March Madness bracket drive times
+- [ ] 279. Every 100,000-seat football stadium
+- [ ] 280. Every golf major venue
+- [ ] 281. Every minor league team with a ridiculous name
+- [ ] 282. A real concert tour's routing vs. the optimal order
+- [ ] 283. Grateful Dead 1977 tour route
+- [ ] 284. Every Little League World Series region winner
+- [ ] 285. The sports "majors" tour: Indy 500, Kentucky Derby, Masters
+
+### Canada, Mexico, Central America
+- [ ] 286. Mexico City to Cancún
+- [ ] 287. Every Canadian city over 100k
+- [ ] 288. Tijuana to Tapachula: the whole length of Mexico
+- [ ] 289. The Pan-American Highway through Central America
+- [ ] 290. Every drivable Central American volcano
+- [ ] 291. Vancouver to Halifax
+- [ ] 292. Every Pacific beach town in Mexico
+- [ ] 293. Baja end to end
+- [ ] 294. Québec's most beautiful villages
+- [ ] 295. Belize speedrun: every town
+
+### Misc
+- [ ] 296. Every town with population 1
+- [ ] 297. The smallest town in each state
+- [ ] 298. Embarrass, MN to Accident, MD to Peculiar, MO to Hot Coffee, MS
+- [ ] 299. Every place that claims to be the "center" of something
+- [ ] 300. IKEA deserts: worst drive to an IKEA by state
+- [ ] 301. Costco-run index: worst drive to Costco by state
+- [ ] 302. Halfway-point dinner dates between two cities
+- [ ] 303. Every town where two state lines meet a river
