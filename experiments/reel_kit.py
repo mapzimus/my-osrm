@@ -9,6 +9,7 @@ A video imports this and only supplies its own data, map and camera:
 
 from __future__ import annotations
 
+import math
 import subprocess
 import wave
 from pathlib import Path
@@ -20,12 +21,37 @@ SERIES, HANDLE = "Optimal Drives", "@mapzimus"
 
 # --- canvas and safe zones ---------------------------------------------------
 W, H, FPS = 1080, 1920, 30
-HUD_BOTTOM = 460                 # series tag, title, stats, chips live above
+HUD_H = 430                      # series tag, title, stats, chips
+TOP = 30                         # first HUD line
+HUD_BOTTOM = TOP + HUD_H
 NOW_TOP, NOW_BOTTOM = 1520, 1630  # the "now" label band
 TEXT_FLOOR = 1640                # no text below: platform captions
 RIGHT_RAIL = 140                 # px on the right, lower half: platform buttons
 MAP_TOP, MAP_BOTTOM = HUD_BOTTOM, NOW_TOP
 MAP_CENTER_Y = (MAP_TOP + MAP_BOTTOM) / 2
+
+# Per-platform safe zones (doc §3). "classic" is the first video's layout.
+# tiktok: the For You / Following tabs cover the top ~150 px, caption and
+#   sound bar the bottom ~440 px.
+# reels: Instagram also shows reels in the home feed cropped to 4:5
+#   (y 285 to 1635), so the HUD starts below 285; the caption covers the
+#   bottom ~420 px in the Reels tab.
+PLATFORMS = {
+    "classic": dict(top=30, floor=1640, rail=140),
+    "tiktok": dict(top=150, floor=1480, rail=140),
+    "reels": dict(top=285, floor=1500, rail=120),
+}
+
+
+def use(platform: str) -> None:
+    """Switch every layout constant to one platform's safe zones."""
+    global TOP, HUD_BOTTOM, NOW_TOP, NOW_BOTTOM, TEXT_FLOOR, RIGHT_RAIL, MAP_TOP, MAP_BOTTOM, MAP_CENTER_Y
+    p = PLATFORMS[platform]
+    TOP, TEXT_FLOOR, RIGHT_RAIL = p["top"], p["floor"], p["rail"]
+    HUD_BOTTOM = TOP + HUD_H
+    NOW_TOP, NOW_BOTTOM = TEXT_FLOOR - 120, TEXT_FLOOR - 10
+    MAP_TOP, MAP_BOTTOM = HUD_BOTTOM, NOW_TOP
+    MAP_CENTER_Y = (MAP_TOP + MAP_BOTTOM) / 2
 
 # --- colour tokens ---------------------------------------------------------------
 WATER = (13, 17, 23)
@@ -87,8 +113,9 @@ def shade() -> Image.Image:
     """Top and bottom darkening so HUD text reads over any map."""
     col = np.zeros((H, 1, 4), np.uint8)
     for y in range(H):
-        if y < 520:
-            a = (1 - y / 520) ** 1.4
+        if y < HUD_BOTTOM + 60:
+            pad = TOP - 30           # solid above the HUD; classic layout unchanged
+            a = 1.0 if y < pad else (1 - (y - pad) / (HUD_BOTTOM + 60 - pad)) ** 1.4
         elif y > NOW_TOP - 140:
             a = min(1.0, (y - (NOW_TOP - 140)) / 260) ** 1.4 * 0.85
         else:
@@ -98,31 +125,35 @@ def shade() -> Image.Image:
 
 
 def header(d: ImageDraw.ImageDraw, title: str, subtitle: str) -> None:
-    d.text((W / 2, 30), spaced(SERIES.upper()), font=F("tag"), fill=ACCENT, anchor="mt")
-    d.text((W / 2, 64), title, font=F("title"), fill=INK, anchor="mt")
-    d.text((W / 2, 134), subtitle, font=F("sub"), fill=MUTED, anchor="mt")
+    d.text((W / 2, TOP), spaced(SERIES.upper()), font=F("tag"), fill=ACCENT, anchor="mt")
+    d.text((W / 2, TOP + 34), title, font=F("title"), fill=INK, anchor="mt")
+    d.text((W / 2, TOP + 104), subtitle, font=F("sub"), fill=MUTED, anchor="mt")
 
 
 def stats(d: ImageDraw.ImageDraw, items: list[tuple[str, str, bool]]) -> None:
     """Up to 3 (number, unit, accent). The first is the clock."""
     for c, (big, unit, accent) in enumerate(items):
         x = W * (c + 0.5) / len(items)
-        d.text((x, 205), big, font=F("big"), fill=ACCENT if accent else INK, anchor="mt")
-        d.text((x, 300), unit, font=F("unit"), fill=MUTED, anchor="mt")
+        d.text((x, TOP + 175), big, font=F("big"), fill=ACCENT if accent else INK, anchor="mt")
+        d.text((x, TOP + 270), unit, font=F("unit"), fill=MUTED, anchor="mt")
 
 
-def chips(d: ImageDraw.ImageDraw, items: list[tuple[str, int, int]]) -> list[bool]:
-    """Up to 6 (label, done, total). Returns which are complete."""
+def chips(d: ImageDraw.ImageDraw, items: list[tuple[str, int, int]],
+          colors: list[tuple] | None = None) -> list[bool]:
+    """Up to 6 (label, done, total). Returns which are complete.
+    With `colors`, each chip's label is always in its colour (a legend), and so is a full chip."""
     n, gap = len(items), 12
     cw = (W - 72 - gap * (n - 1)) / n
     out = []
     for c, (label, done, total) in enumerate(items):
         x = 36 + c * (cw + gap)
         full = done >= total
-        d.rounded_rectangle((x, 360, x + cw, 420), 12, fill=ACCENT_FILL if full else CHIP_FILL,
-                            outline=ACCENT if full else BORDER, width=2)
-        d.text((x + 14, 390), label, font=F("tag"), fill=ACCENT if full else MUTED, anchor="lm")
-        d.text((x + cw - 12, 390), f"{done}/{total}", font=F("chip_s") if total >= 100 else F("chip"),
+        col = colors[c] if colors else ACCENT
+        fill = tuple(int(v * 0.18) for v in col) if colors else ACCENT_FILL
+        d.rounded_rectangle((x, TOP + 330, x + cw, TOP + 390), 12, fill=fill if full else CHIP_FILL,
+                            outline=col if full else BORDER, width=2)
+        d.text((x + 14, TOP + 360), label, font=F("tag"), fill=col if full or colors else MUTED, anchor="lm")
+        d.text((x + cw - 12, TOP + 360), f"{done}/{total}", font=F("chip_s") if total >= 100 else F("chip"),
                fill=INK if done else MUTED, anchor="rm")
         out.append(full)
     return out
@@ -139,27 +170,33 @@ def now_label(d: ImageDraw.ImageDraw, kicker: str, name: str, place: str) -> Non
     d.text((W / 2, NOW_TOP + 78), place, font=F("small"), fill=MUTED, anchor="mt")
 
 
-def callout(d: ImageDraw.ImageDraw, x: float, y: float, text: str, alpha: float) -> None:
-    """Famous-place label on the map, kept clear of the HUD and right rail."""
-    f = F("callout")
-    tw = f.getlength(text)
+def callout_box(x: float, y: float, text: str) -> tuple[float, float, float, float]:
+    """Where callout() puts its box: (left, top, right, bottom), clear of the HUD and right rail."""
+    tw = F("callout").getlength(text)
     bx = min(max(x - tw / 2, 30), W - RIGHT_RAIL - tw - 10)
     by = y - 74 if y - 74 > MAP_TOP + 50 else y + 30
+    return bx - 14, by - 8, bx + tw + 14, by + 46
+
+
+def callout(d: ImageDraw.ImageDraw, x: float, y: float, text: str, alpha: float,
+            color: tuple = ACCENT, box: tuple | None = None) -> None:
+    """Famous-place label on the map. `box` (from callout_box) overrides the placement."""
+    l, t, r, b = box or callout_box(x, y, text)
     a = int(255 * alpha)
-    d.rounded_rectangle((bx - 14, by - 8, bx + tw + 14, by + 46), 10,
-                        fill=(*WATER, int(a * 0.85)), outline=(*ACCENT, a), width=2)
-    d.text((bx, by), text, font=f, fill=(*INK, a))
+    d.rounded_rectangle((l, t, r, b), 10, fill=(*WATER, int(a * 0.85)), outline=(*color, a), width=2)
+    d.text((l + 14, t + 8), text, font=F("callout"), fill=(*INK, a))
 
 
-def hook(im: Image.Image, big: list[str], sub: str, alpha: float) -> None:
-    """Frame-1 answer: big lines over the map. Doubles as the thumbnail."""
+def hook(im: Image.Image, big: list[str], sub: str, alpha: float, center_y: float | None = None) -> None:
+    """Frame-1 answer: big lines over the map. Doubles as the thumbnail.
+    `center_y` moves it off the subject (default: centre of the map area)."""
     if alpha <= 0:
         return
     layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     a = int(255 * alpha)
     lh = 128
-    y0 = MAP_CENTER_Y - (len(big) * lh + 70) / 2
+    y0 = (MAP_CENTER_Y if center_y is None else center_y) - (len(big) * lh + 70) / 2
     d.rectangle((0, y0 - 50, W, y0 + len(big) * lh + 110), fill=(*WATER, int(150 * alpha)))
     for i, line in enumerate(big):
         d.text((W / 2, y0 + i * lh), line, font=F("hook"), fill=(*(ACCENT if i == 0 else INK), a), anchor="mt")
@@ -168,9 +205,10 @@ def hook(im: Image.Image, big: list[str], sub: str, alpha: float) -> None:
 
 
 def end_card(im: Image.Image, rows: list[tuple[str, str]], footer: list[str], alpha: float,
-             top: int = 190) -> int:
+             top: int | None = None) -> int:
     """Up to 4 (number, label) rows, then footer lines and the sign-off.
     Returns the card's bottom edge so the caller can fit the map below."""
+    top = TOP + 160 if top is None else top
     bottom = top + 40 + len(rows) * 110 + 40 + 36 * (len(footer) + 1) + 30
     if alpha <= 0:
         return bottom
@@ -189,6 +227,56 @@ def end_card(im: Image.Image, rows: list[tuple[str, str]], footer: list[str], al
     layer.putalpha(layer.getchannel("A").point(lambda v: int(v * alpha)))
     im.alpha_composite(layer)
     return bottom
+
+
+# --- ferries and flights (doc §8) -----------------------------------------------------
+# Shapes from experiments/isochrone (animate.py, ferries_anim.py), nose along +x.
+
+_HALF = [(13, 0), (10, 1.4), (3, 1.7), (-2, 8.5), (-5, 8.5), (-3, 1.7),
+         (-8, 1.5), (-10.5, 4.5), (-12.5, 4.5), (-11.5, 0)]
+PLANE = _HALF + [(x, -y) for x, y in reversed(_HALF[1:-1])]
+BOAT = [(13, 0), (5, 5), (-9, 5), (-11, 0), (-9, -5), (5, -5)]
+
+
+def glyph(d: ImageDraw.ImageDraw, shape: list, x: float, y: float, angle: float, scale: float) -> None:
+    """Plane or boat at (x, y), pointing along `angle` (radians, screen space)."""
+    c, s = math.cos(angle), math.sin(angle)
+    d.polygon([(x + scale * (px * c - py * s), y + scale * (px * s + py * c)) for px, py in shape],
+              fill=INK, outline=WATER)
+
+
+def arc(p0, p1, lift: float = 0.22):
+    """Quadratic curve between screen points, bowed up like a flight path.
+    Returns at(f) -> (x, y, heading)."""
+    (ax, ay), (bx, by) = p0, p1
+    cx, cy = (ax + bx) / 2, (ay + by) / 2 - lift * math.hypot(bx - ax, by - ay)
+
+    def at(f: float):
+        x = (1 - f) ** 2 * ax + 2 * (1 - f) * f * cx + f * f * bx
+        y = (1 - f) ** 2 * ay + 2 * (1 - f) * f * cy + f * f * by
+        dx = 2 * (1 - f) * (cx - ax) + 2 * f * (bx - cx)
+        dy = 2 * (1 - f) * (cy - ay) + 2 * f * (by - cy)
+        return x, y, math.atan2(dy, dx)
+    return at
+
+
+def dashed(d: ImageDraw.ImageDraw, pts: list, fill, width: int, dash: float, gap: float) -> None:
+    """Dashed polyline (ferry crossings)."""
+    on, left = True, dash
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        seg = math.hypot(x1 - x0, y1 - y0)
+        pos = 0.0
+        while seg - pos > 1e-6:
+            step = min(left, seg - pos)
+            if on:
+                f0, f1 = pos / seg, (pos + step) / seg
+                d.line([(x0 + (x1 - x0) * f0, y0 + (y1 - y0) * f0),
+                        (x0 + (x1 - x0) * f1, y0 + (y1 - y0) * f1)], fill=fill, width=width)
+            pos += step
+            left -= step
+            if left <= 1e-6:
+                on = not on
+                left = dash if on else gap
 
 
 # --- pacing ---------------------------------------------------------------------------

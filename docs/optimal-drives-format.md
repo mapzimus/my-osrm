@@ -27,15 +27,28 @@ Reference video: `experiments/college_tour/` (every college in New England).
 
 | | |
 |---|---|
-| Main format | Reel, 1080 × 1920 (9:16), 30 fps |
-| Length | 45 to 65 s |
+| Main format | 1080 × 1920 (9:16), 30 fps, **one export per platform** |
+| Platforms | `tiktok` and `reels` (Instagram); `K.use(platform)` sets the safe zones |
+| Length | **65 s** (Max, 2026-10-13: "They should be 65s") |
 | Encode | H.264, CRF 18, `yuv420p`, `+faststart`, AAC 192 kb/s |
-| Output | `experiments/<slug>/out/<slug>_reel.mp4` |
-| Optional | Feed cut 1080 × 1350 (4:5), same timeline |
+| Output | `experiments/<slug>/out/<slug>_<platform>.mp4` |
 
-## 3. Safe zones (reel)
+The two exports share the timeline, map and camera. Only the layout moves:
+each app covers a different part of the screen.
+
+## 3. Safe zones
 
 TikTok, Reels and Shorts draw their own buttons and captions on top.
+
+| Platform | HUD starts | "Now" band | No text below | Right rail | Why |
+|---|---|---|---|---|---|
+| `tiktok` | y = 150 | 1360 to 1470 | 1480 | 140 px | For You / Following tabs on top; caption, sound bar at the bottom |
+| `reels` | y = 285 | 1380 to 1490 | 1500 | 120 px | The home feed shows reels cropped to 4:5 (y 285 to 1635); caption at the bottom |
+| `classic` | y = 30 | 1520 to 1630 | 1640 | 140 px | The first video (college tour); title sits under TikTok's tabs |
+
+The HUD is always 430 px tall from its start. The map fills the whole frame
+behind everything; the camera centres the subject between the HUD and the
+"now" band. The `classic` diagram:
 
 ```
 y = 0      ┌───────────────────────────┐
@@ -53,9 +66,9 @@ y = 1640   ├──────────────────────
 y = 1920   └───────────────────────────┘
 ```
 
-- No text below y = 1640 or in the right 140 px below y = 900.
-- The camera keeps the moving subject at the centre of the map area
-  (y ≈ 990), not the centre of the frame.
+- No text below the platform's floor, or in its right rail below y = 900.
+- The camera keeps the moving subject at the centre of the map area,
+  not the centre of the frame.
 
 ## 4. Look
 
@@ -141,8 +154,8 @@ step's `mode == "ferry"`):
 - The "now" label shows the kicker `FERRY` and the route name
   (e.g. `Cape May–Lewes Ferry`, `1 h 25 min`).
 - Sound: a low two-note horn as the boat leaves.
-- Code: `experiments/isochrone/ferries_anim.py` (`load`, `along`, `draw`).
-  Ferry lines come from `data/app/ferries.geojson`.
+- Code: `reel_kit.py` (`BOAT`, `glyph`, `dashed`). The route's own ferry
+  steps (`mode == "ferry"`, with the ferry's name) mark the crossing.
 
 **Flights** (only where no road or ferry reaches: Hawaii, Bermuda, roadless
 Alaska, islands; the end card says "flown").
@@ -156,11 +169,9 @@ Alaska, islands; the end card says "flown").
   overhead, both written on the end card ("+ 2 flights, 550 mph, 2 h airport time").
 - Kicker `FLIGHT`, label `BOS → HNL`.
 - Sound: a soft rising whoosh over the flight.
-- Code: `experiments/isochrone/animate.py` (`draw_plane`, `arc`) and
-  `experiments/isochrone/flights.py` (`plan`, `great_circle`).
-
-When a third video needs these, move them into `reel_kit.py` so they look
-the same everywhere.
+- Code: `reel_kit.py` (`PLANE`, `glyph`, `arc`). Pacing: a flight counts
+  as several stops in `warp` so the plane stays on screen long enough to
+  read. Reference: `experiments/lighthouses/` (Hawaii).
 
 ## 9. End card
 
@@ -177,8 +188,10 @@ Footer: start and finish, data sources, then the sign-off
 
 ## 10. Sound
 
-- Built into the video: a soft tick each time a place is reached, a brighter
-  chime when a chip completes, a low chord at the finish.
+- **Silent by default** (Max, 2026-10-13: "I really don't like the dinging
+  noise"). The kit's `soundtrack` (ticks, chimes, a finish chord) is opt-in
+  only, e.g. `reel_video.py --sound`. Capitals (2026-10-14) uses it:
+  `render.ps1 capitals -Sound`.
 - **No music in the file.** Add trending or library audio in the app when
   posting; platforms reward their own audio, and it avoids rights problems.
 
@@ -207,3 +220,25 @@ Comment a place and I'll map it.
 - [ ] Every famous callout is spelled right.
 - [ ] `@mapzimus` visible all the way through; sign-off on the end card.
 - [ ] Watched once with sound, once muted.
+
+## 14. Rendering
+
+Always render with the launcher (Max, 2026-10-14: "I want it done this way every time"):
+
+```
+.\experiments\render.ps1 <video> [-Platform reels] [-Parts 3] [-Sound]
+```
+
+- **Its own hidden process.** Never as a Claude Code background job: Claude Code
+  kills those when RAM runs short, and a full render is 35+ min beside a 5 GB
+  OSRM container. The launcher detaches and logs to `<video>/out/<platform>_render.log`;
+  the last line is `ALL DONE` or `... FAILED`. Watch that file; don't hold the process.
+- **1 worker, in parts.** Each part (default 3, ~22 s of video each) is a separate
+  Python run, so memory is released between parts. A crash costs one part; rerunning
+  the same command skips the parts that already finished.
+- **Join, then sound.** `--join N` stream-copies the parts (no re-encode, no quality
+  loss), then `--sound` muxes the soundtrack if asked.
+- **Stills first.** Check changes with `video.py --stills 12,30,64` (seconds) before
+  any full render; a still costs seconds, a render costs half an hour.
+- A `video.py` needs `--part k/n`, `--join n` and `--workers` for this (capitals is
+  the reference). If ffmpeg dies, it reports ffmpeg's exit code and the frame.
