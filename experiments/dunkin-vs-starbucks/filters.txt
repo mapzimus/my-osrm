@@ -1,6 +1,0 @@
-# osmium tags-filter expressions: every Dunkin' and Starbucks-looking feature.
-# Wikidata first (Q847743 Dunkin', Q37158 Starbucks); brand/name catch untagged ones.
-# Both apostrophes: ' and ’. stores.py sorts out the chain and drops look-alikes.
-nwr/brand:wikidata=Q847743,Q37158
-nwr/brand=Dunkin',Dunkin’,Dunkin' Donuts,Dunkin’ Donuts,Dunkin,Starbucks,Starbucks Coffee
-nwr/name=Dunkin',Dunkin’,Dunkin' Donuts,Dunkin’ Donuts,Dunkin,Starbucks,Starbucks Coffee
