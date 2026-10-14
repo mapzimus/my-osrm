@@ -24,3 +24,4 @@ experiments/isochrone/out/*.log
 
 # Optimal Drives renders (re-made by video.py; post from out/, never commit)
 experiments/college_tour/out/
+experiments/walmart/lkh/*.tgz
