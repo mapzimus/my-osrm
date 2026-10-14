@@ -225,3 +225,7 @@ Check off ideas as they get made. Coverage caveat: confirm whether the US extrac
 - [ ] 198. Viewer picks: commenters name two towns, you route them
 - [ ] 199. "Guess the drive time" quiz shorts
 - [ ] 200. Year-end "OSRM Wrapped": your top routes of the year
+
+## Batch 3 (201+)
+- [ ] 201. Every town called Salem (Halloween drop, end in Salem, MA)
+- [ ] 202. Draw the lower 48's state borders using only roads: the closest drivable path along every border
