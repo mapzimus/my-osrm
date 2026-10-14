@@ -11,6 +11,11 @@ roads reached, like reel_kit.warp; the clock still ends at the true maximum.
     python experiments/dunkin-vs-starbucks/animate.py --format 16x9 --stills 2,8,15,27
 
 Writes out/turf_dunkin_starbucks_<format>.mp4 (or out/anim_<format>_<s>.png).
+
+Camera (Max, 2026-10-14: "should zoom and stuff too"): SHOTS, down I-95 from
+Dunkin's home turf to the most even 50/50 frontier, then out to the country.
+While the camera holds, new roads are added onto one canvas; while it moves,
+each frame is redrawn from the roads in view.
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ import time
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from draw import CACHE, OUT, Canvas, load, pieces
+from draw import CACHE, OUT, Canvas, albers, load, pieces
 
 FPS = 30
 SPREAD_S, HOLD_S = 25.0, 3.0
@@ -31,6 +36,13 @@ CLOCK_SHARE = 0.35
 SIZES = {"16x9": (1920, 1080), "9x16": (1080, 1920)}
 FONT = "C:/Windows/Fonts/bahnschrift.ttf"
 INK, LABEL = (225, 225, 225), (150, 150, 150)     # greys: same in RGB and BGR
+
+# Views: (lon, lat, short side of the frame in km); "US" = the whole map as in the still.
+VIEWS = {"Boston": (-71.06, 42.36, 110), "Northeast": (-73.6, 41.5, 650),
+         "DC-Baltimore": (-76.9, 39.1, 220), "US": None}   # DC-Baltimore: 254k road points, 50/50
+# (video seconds, view): hold each view until the next key, moving (smoothstep) where the key says.
+SHOTS = [(0.0, "Boston"), (3.0, "Boston"), (5.5, "Northeast"), (7.0, "Northeast"), (9.5, "DC-Baltimore"),
+         (14.0, "DC-Baltimore"), (18.0, "US")]
 
 
 def schedule(t_sorted: np.ndarray, n: int) -> np.ndarray:
@@ -68,6 +80,62 @@ class Clock:
         img[:] = np.asarray(im)
 
 
+def view_of(name: str, us: Canvas, w: int, h: int) -> tuple[float, float, float]:
+    """(centre x km, centre y km, km per pixel)."""
+    if VIEWS[name] is None:
+        return (w / 2 - us.ox) / us.s, (us.oy - h / 2) / us.s, 1 / us.s
+    lon, lat, short = VIEWS[name]
+    x, y = albers([lon], [lat])
+    return float(x[0]), float(y[0]), short / min(w, h)
+
+
+def camera(sec: float, us: Canvas, w: int, h: int) -> tuple[tuple, bool]:
+    """View at video second sec, and whether the camera is still."""
+    if sec <= SHOTS[0][0]:
+        return view_of(SHOTS[0][1], us, w, h), True
+    for (s0, v0), (s1, v1) in zip(SHOTS, SHOTS[1:]):
+        if sec <= s1:
+            a, b = view_of(v0, us, w, h), view_of(v1, us, w, h)
+            if v0 == v1:
+                return a, True
+            k = (sec - s0) / (s1 - s0)
+            k = k * k * (3 - 2 * k)
+            return (a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k,
+                    float(np.exp(np.log(a[2]) + (np.log(b[2]) - np.log(a[2])) * k))), False
+    return view_of(SHOTS[-1][1], us, w, h), True
+
+
+def canvas_for(view, w: int, h: int) -> Canvas:
+    x, y, k = view
+    return Canvas((x - w * k / 2, y - h * k / 2, x + w * k / 2, y + h * k / 2), w, h, box=(0, 0, w, h))
+
+
+class Frames:
+    """Frame images in order: incremental while the view holds, redrawn while it moves."""
+
+    def __init__(self, pc, order, upto, t_fade, w, h):
+        self.pc, self.order, self.upto, self.t_fade, self.w, self.h = pc, order, upto, t_fade, w, h
+        self.mx = (pc["p0"][:, 0] + pc["p1"][:, 0]) / 2
+        self.my = (pc["p0"][:, 1] + pc["p1"][:, 1]) / 2
+        self.us = Canvas(pc["bounds"], w, h)
+        self.cv, self.view, self.done = None, None, 0
+
+    def in_view(self, idx: np.ndarray, view) -> np.ndarray:
+        x, y, k = view
+        hw, hh = self.w * k * 0.52, self.h * k * 0.52
+        return idx[(np.abs(self.mx[idx] - x) < hw) & (np.abs(self.my[idx] - y) < hh)]
+
+    def get(self, i: int, sec: float) -> np.ndarray:
+        view, still = camera(sec, self.us, self.w, self.h)
+        if self.cv is None or view != self.view:                 # new view: draw what's reached so far
+            self.cv = canvas_for(view, self.w, self.h)
+            self.cv.add(self.pc, self.in_view(self.order[:self.upto[i]], view), self.t_fade)
+        else:                                                    # same view: add the new roads
+            self.cv.add(self.pc, self.in_view(self.order[self.done:self.upto[i]], view), self.t_fade)
+        self.view, self.done = view, self.upto[i]
+        return self.cv.img.copy()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--format", choices=list(SIZES), default="16x9")
@@ -84,18 +152,16 @@ def main() -> None:
     n_spread, n_hold = int(SPREAD_S * FPS), int(HOLD_S * FPS)
     drive = np.concatenate([schedule(ts, n_spread), np.full(n_hold, float(ts[-1]))])
     upto = np.searchsorted(ts, drive, side="right")             # pieces shown by each frame
-    cv = Canvas(pc["bounds"], w, h)
+    frames = Frames(pc, order, upto, t_fade, w, h)
     clock = Clock(args.format, w, h)
     print(f"{len(ts):,} pieces loaded in {time.time() - t0:.0f} s; {len(drive)} frames; "
           f"clock ends at {drive[-1] / 3600:.2f} h", flush=True)
 
     if args.stills:
-        done = 0
         for sec in sorted(map(float, args.stills.split(","))):
             i = min(int(sec * FPS), len(drive) - 1)
-            cv.add(pc, order[done:upto[i]], t_fade)
-            done = upto[i]
-            frame = cv.img.copy()
+            frames.cv = None                                     # stills: draw each from scratch
+            frame = frames.get(i, i / FPS)
             clock.draw(frame, drive[i])
             Image.fromarray(frame[:, :, ::-1]).save(OUT / f"anim_{args.format}_{sec:04.1f}.png")
         print("stills written", flush=True)
@@ -107,11 +173,9 @@ def main() -> None:
                                "-s", f"{w}x{h}", "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-crf", "18",
                                "-preset", "medium", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out)],
                               stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=log)
-        done, t1 = 0, time.time()
+        t1 = time.time()
         for i in range(len(drive)):
-            cv.add(pc, order[done:upto[i]], t_fade)
-            done = upto[i]
-            frame = cv.img.copy()
+            frame = frames.get(i, i / FPS)
             clock.draw(frame, drive[i])
             try:
                 ff.stdin.write(frame.tobytes())
