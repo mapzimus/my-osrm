@@ -28,13 +28,15 @@ from shapely.geometry import shape
 HERE = Path(__file__).resolve().parent
 CACHE = HERE / "cache"
 SHOPS = {"department_store", "supermarket", "general", "variety_store"}
-NOT_STORE = ("fuel", "pharmacy", "vision", "auto care", "tire", "pickup", "money center", "sam's")
+# Neighborhood Markets are out (Max, 2026-10-14): OSM has 475 of 674, too few to count.
+NOT_STORE = ("fuel", "pharmacy", "vision", "auto care", "tire", "pickup", "money center", "sam's",
+             "neighborhood market")
 DEDUPE_M = 150
-# Walmart U.S. stores incl. Puerto Rico (Supercenters + Discount + Neighborhood
-# Markets). corporate.walmart.com/about/location-facts/united-states, units as of
-# 2026-07-31 (read 2026-10-14): 3,569 Supercenters + 351 discount + 674 Neighborhood
-# Markets = 4,594 (excludes 21 small formats and 602 Sam's Club).
-OFFICIAL = 4_594
+# Walmart U.S. Supercenters + Discount Stores incl. Puerto Rico.
+# corporate.walmart.com/about/location-facts/united-states, units as of 2026-07-31
+# (read 2026-10-14): 3,569 Supercenters + 351 discount = 3,920 (leaves out 674
+# Neighborhood Markets, 21 small formats and 602 Sam's Club).
+OFFICIAL = 3_920
 GATE = 0.02
 
 

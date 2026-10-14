@@ -6,8 +6,13 @@ import inventory as I
 
 def test_keeps_store_types():
     assert I.is_store({"shop": "department_store", "name": "Walmart Supercenter"})
-    assert I.is_store({"shop": "supermarket", "name": "Walmart Neighborhood Market"})
+    assert I.is_store({"shop": "supermarket", "name": "Walmart Supercenter"})
     assert I.is_store({"shop": "department_store", "name": "Walmart"})
+
+
+def test_drops_neighborhood_markets():
+    # Max, 2026-10-14: big stores only; OSM has 475 of 674 markets, too few to count.
+    assert not I.is_store({"shop": "supermarket", "name": "Walmart Neighborhood Market"})
 
 
 def test_drops_non_stores():

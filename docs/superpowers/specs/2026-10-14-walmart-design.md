@@ -10,7 +10,8 @@ the hook and end card must survive fact-checking in the comments.
 
 ## Rules (decided by Max)
 
-- **Stores:** every Walmart store: Supercenters, Discount Stores,
+- **Stores:** every Walmart Supercenter and Discount Store (Max, 2026-10-14:
+  OSM has only 475 of 674 Neighborhood Markets, so they are out). Formerly also
   Neighborhood Markets. Not Sam's Club, not Walmart fuel stations or
   separately mapped pharmacies, not closed stores.
 - **Coverage:** 50 states + Puerto Rico. Hawaii, Puerto Rico (and any store
@@ -45,10 +46,10 @@ before building.
 - **Camera:** mostly the whole US. 3 to 4 short dives where stores are dense
   (Dallas, Atlanta, Florida). Hawaii, Puerto Rico and Alaska are shown with
   an inset or fly-to when the route reaches them.
-- **Stats band:** clock, miles driven, "N of 4,6xx" stores, five region chips.
+- **Stats band:** clock, miles driven, "N of 3,933" stores, five region chips.
 - **"Now" label:** state and that state's count, e.g.
   "TEXAS · 52 of 403 Walmarts". No individual store names.
-- **Hook:** "4,6xx Walmarts. N hours."
+- **Hook:** "3,933 Walmarts. N hours." (subline: Supercenters and Discount Stores)
 - **End card:** hours, miles, stores, the state with the most stores, driving
   days at 8 h a day. Source: OpenStreetMap (date), routing: OSRM.
 - Follows `docs/optimal-drives-format.md` (safe zones, colours, silent).
