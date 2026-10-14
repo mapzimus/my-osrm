@@ -229,3 +229,4 @@ Check off ideas as they get made. Coverage caveat: confirm whether the US extrac
 ## Batch 3 (201+)
 - [ ] 201. Every town called Salem (Halloween drop, end in Salem, MA)
 - [ ] 202. Draw the lower 48's state borders using only roads: the closest drivable path along every border
+- [ ] 203. Dunkin' vs. Starbucks flood: every store "leaves" at once, drive-time fronts spread out along roads (Dunkin' orange, Starbucks green) until they collide. Ends on an art-print map of the border between them.
