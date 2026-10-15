@@ -312,13 +312,12 @@ def millions(n: float) -> str:
 
 
 def HOOK_LINES(d: dict) -> list[str]:
-    """Max (2026-10-15): not the Denver intro. The surprise in the data: more Americans live closest to
-    the Great Lakes than to the Pacific."""
-    return ["Great Lakes " + pct_down(d["share"]["Great Lakes"]), "Pacific " + pct_down(d["share"]["Pacific"])]
+    """Max (2026-10-15): open on what the map is, "closest shoreline to everywhere by road in the lower 48"."""
+    return ["Closest shore", "to everywhere"]
 
 
 def HOOK_SUB(d: dict) -> str:
-    return "More Americans live closest to the Great Lakes than to the Pacific"
+    return "by road, in the lower 48"
 
 
 def pct_down(share: float) -> str:
