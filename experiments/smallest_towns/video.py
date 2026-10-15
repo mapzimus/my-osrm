@@ -610,7 +610,7 @@ def render(i: int) -> bytes:
     hook_a = 1 - K.smoothstep((s - (K.HOOK - 0.3)) / 0.5)
     total_pop = sum(x["pop"] for x in tour["stops"])
     K.hook(im, [f"{n_all} towns.", f"{total_pop:,} people."],
-           "The smallest town in every state, all of them", hook_a, center_y=K.TEXT_FLOOR - 230)
+           "The smallest town in every state", hook_a, center_y=K.TEXT_FLOOR - 230)
     K.end_card(im, *G["end"], card_a)
     return im.convert("RGB").tobytes()
 
