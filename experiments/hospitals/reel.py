@@ -48,28 +48,33 @@ FPS, W, H = K.FPS, K.W, K.H
 SECONDS = 65
 RACE_START = K.HOOK + K.DIVE
 CARD_IN = SECONDS - K.END_CARD - 0.8
-RACE_END = CARD_IN - K.PULL_OUT
-CLOCK_SHARE = 0.7                       # 92% of roads are under 30 min: pace mostly by the clock so amber
-                                        # (~0:23) and red (~0:28) arrive during the regional tour
-LAST_HOLD = 3.0                         # seconds on the farthest road after it's reached
+FINAL_HOLD = 6.0                        # the finished US map, no card (Max, 2026-10-15: "show the final map longer")
+LAST_HOLD = 2.5                         # seconds on the farthest road after it's reached
+PULL = CARD_IN - FINAL_HOLD - K.PULL_OUT    # leave the farthest road for the whole map
+REACHED = PULL - LAST_HOLD              # the clock reaches the farthest road here
+CLOCK_SHARE = 0.7                       # most roads are close: pace mostly by the clock so the warm bands
+                                        # arrive during the regional tour
 FADE_S = 0.5
 
-# Drive-time bands (minutes) and their colours, so a road's colour changes as the clock passes 0:30 and
-# 1:00 (Max, 2026-10-15: "30 and 1 hr both on the same map"). Semantic heat, blue -> amber -> red
-# (dataviz: the one multi-hue ordered exception, always with a legend); validated all-pairs on black:
-# CVD dE >= 23.8, normal-vision >= 28.4.
-BANDS = [30, 60]
-BAND_LABELS = ["under 30 min", "30–60 min", "1 hour+"]
-RAMP = [(0x2A, 0x78, 0xD6), (0xFA, 0xB2, 0x19), (0xD0, 0x3B, 0x3B)]
+# Drive-time bands, 15 min apart (Max, 2026-10-15); a road takes the colour of the moment it's reached,
+# so the flood turns from blue to red as the clock runs. Semantic heat (dataviz: the one multi-hue ordered
+# exception, always with a legend), validated adjacent on black: CVD dE >= 12.9, normal-vision >= 17.0.
+BANDS = [15, 30, 45, 60]
+BAND_LABELS = ["<15", "15–30", "30–45", "45–60", "60+ min"]
+RAMP = [(0x1C, 0x5C, 0xAB), (0x55, 0x98, 0xE7), (0xED, 0xA1, 0x00), (0xE6, 0x67, 0x67), (0xB0, 0x2A, 0x2A)]
+FAR = 2                                 # bands >= FAR are "30+ min"
 DOT = (236, 239, 244)
 
-VIEWS = {"Northeast": (-74.5, 41.6, 700), "Appalachia": (-81.6, 37.6, 600), "Delta": (-90.6, 33.2, 600),
-         "Great Plains": (-100.5, 44.0, 1100), "Mountain West": (-113.5, 40.8, 1200), "US": None}
+VIEWS = {"Boston": (-71.08, 42.33, 90), "Northeast": (-74.5, 41.6, 700), "Appalachia": (-81.6, 37.6, 600),
+         "Delta": (-90.6, 33.2, 600), "Great Plains": (-100.5, 44.0, 1100), "Mountain West": (-113.5, 40.8, 1200),
+         "Northern Rockies": (-114.8, 46.3, 650), "US": None}
 # (second, view): hold where two keys name the same view, move between. "Last" = the farthest road.
-# Max (2026-10-15): tour regions as the country fills, then the final road.
-SHOTS = [(RACE_START, "Northeast"), (7.5, "Northeast"), (9.2, "Appalachia"), (12.5, "Appalachia"),
-         (14.2, "Delta"), (17.5, "Delta"), (19.6, "Great Plains"), (23.5, "Great Plains"),
-         (25.6, "Mountain West"), (29.5, "Mountain West"), (32.0, "US"), (37.0, "US"), (40.0, "Last")]
+# Max (2026-10-15): start zoomed in tight, tour regions as the country fills, then the final road.
+SHOTS = [(RACE_START, "Boston"), (6.3, "Boston"), (7.8, "Northeast"), (10.0, "Northeast"), (11.6, "Appalachia"),
+         (14.0, "Appalachia"), (15.6, "Delta"), (18.0, "Delta"), (20.0, "Great Plains"), (23.0, "Great Plains"),
+         (25.0, "Mountain West"), (28.5, "Mountain West"), (30.3, "Northern Rockies"), (33.3, "Northern Rockies"),
+         (35.8, "US"), (40.0, "US"), (43.0, "Last")]
+KICKERS = {"Boston": "Boston", "Appalachia": "Appalachia"}         # the rest get "The ..."
 LAST_KM = 180                            # frame width on the farthest road
 DETOUR = 3.0                             # road_ok(): drive time / straight-line estimate above this is a map error
 # road_ok(): (south, north, west, east, drop only over this many hours), why. Checked 2026-10-15.
@@ -160,23 +165,23 @@ def prepare() -> dict:
     people = dict(t=pt[by_t], cum=np.concatenate([[0.0], np.cumsum(pop[by_t])]), band=band(pt[by_t]),
                   total=float(pop.sum()))
     b = band(pt)
-    # states ranked by share of people 30+ min out; (share 30-60, share 60+, state)
-    states = sorted(((float(pop[(st == s) & (b == 1)].sum() / pop[st == s].sum()),
-                      float(pop[(st == s) & (b == 2)].sum() / pop[st == s].sum()), s) for s in set(st)),
-                    key=lambda r: r[0] + r[1], reverse=True)
+    # states ranked by share of people 30+ min out: ([share per band FAR..], state)
+    states = sorted((([float(pop[(st == s) & (b == k)].sum() / pop[st == s].sum()) for k in range(FAR, len(RAMP))], s)
+                     for s in set(st)), key=lambda r: sum(r[0]), reverse=True)
 
-    region = {}
+    region = {}                                 # (% of people 30+ min out, longest drive in frame (s), ERs)
     hx, hy = hospital_points()
     for name, v in VIEWS.items():
         if v:
             x, y = albers([v[0]], [v[1]])
-            m = (np.abs(px - x[0]) < v[2] / 2) & (np.abs(py - y[0]) < v[2] / 2)
-            n_h = int(((np.abs(hx - x[0]) < v[2] / 2) & (np.abs(hy - y[0]) < v[2] / 2)).sum())
-            region[name] = (round(100 * pop[m & (b >= 1)].sum() / pop[m].sum()),
-                            round(100 * pop[m & (b == 2)].sum() / pop[m].sum()), n_h)
+            half = v[2] / 2
+            m = (np.abs(px - x[0]) < half) & (np.abs(py - y[0]) < half)
+            r_in = (np.abs(mx - x[0]) < half) & (np.abs(my - y[0]) < half)
+            n_h = int(((np.abs(hx - x[0]) < half) & (np.abs(hy - y[0]) < half)).sum())
+            region[name] = (100 * pop[m & (b >= FAR)].sum() / pop[m].sum(), float(pc["t"][r_in].max()), n_h)
     lon_l, lat_l = lonlat_of(mx[last], my[last])
     return dict(pc=pc, order=order, ts=ts, mx=mx, my=my, last=last, hx=hx, hy=hy, people=people,
-                far30=float(pop[b >= 1].sum()), far60=float(pop[b == 2].sum()),
+                far30=float(pop[b >= FAR].sum()), far60=float(pop[b == len(RAMP) - 1].sum()),
                 states=states, region=region, place=place_name(lon_l, lat_l),
                 t_fade=float(np.percentile(ts, 99.5)))
 
@@ -251,7 +256,7 @@ def held_range(name: str) -> tuple[float, float]:
     for (s0, v0), (s1, v1) in zip(SHOTS, SHOTS[1:]):
         if v0 == v1 == name:
             return s0, s1
-    return SHOTS[-1][0], RACE_END
+    return SHOTS[-1][0], PULL
 
 
 def hm(seconds: float) -> str:
@@ -268,6 +273,15 @@ def millions(n: float) -> str:
     return f"{n / 1e6:.1f} million"
 
 
+def pct_down(share: float) -> str:
+    """Rounded down, tenths above 99%: '100%' only when it is (Max, 2026-10-15)."""
+    if share >= 1 - 1e-12:
+        return "100%"
+    if share >= 0.99:
+        return f"{math.floor(share * 1000) / 10:.1f}%"
+    return f"{math.floor(share * 100)}%"
+
+
 # --- frames -----------------------------------------------------------------------
 
 class Reel:
@@ -278,7 +292,7 @@ class Reel:
         pc = self.d["pc"]
         n = SECONDS * FPS
         self.secs = np.arange(n) / FPS
-        r0, r1 = int(RACE_START * FPS), int((RACE_END - LAST_HOLD) * FPS)
+        r0, r1 = int(RACE_START * FPS), int(REACHED * FPS)
         drive = np.zeros(n)
         drive[r0:r1 + 1] = schedule(self.d["ts"], r1 + 1 - r0)
         drive[r1 + 1:] = self.d["ts"][-1]
@@ -307,8 +321,12 @@ class Reel:
             return self.view_of("US"), "hook"
         if sec < RACE_START:
             return move(self.view_of("US"), self.view_of(SHOTS[0][1]), (sec - K.HOOK) / K.DIVE), None
-        if sec > RACE_END:
-            return move(self.view_of(SHOTS[-1][1]), self.card_view, min(1.0, (sec - RACE_END) / K.PULL_OUT)), None
+        if sec > CARD_IN:                                   # the finished map makes room for the card
+            return move(self.view_of("US"), self.card_view, min(1.0, (sec - CARD_IN) / 0.8)), None
+        if sec > PULL + K.PULL_OUT:
+            return self.view_of("US"), "final"
+        if sec > PULL:
+            return move(self.view_of(SHOTS[-1][1]), self.view_of("US"), (sec - PULL) / K.PULL_OUT), None
         for (s0, v0), (s1, v1) in zip(SHOTS, SHOTS[1:]):
             if sec <= s1:
                 if v0 == v1:
@@ -324,7 +342,7 @@ class Reel:
         m = (px > -5) & (px < W + 5) & (py > -5) & (py < H + 5)
         zoom = math.log2(max(self.us_k / k, 1.0))
         r = float(np.clip(0.9 + 0.9 * zoom, 0.9, 5.0))
-        col = tuple(int(c * min(1.0, 0.55 + 0.25 * zoom)) for c in DOT)     # dim at US scale: the roads are the story
+        col = tuple(int(c * min(1.0, 0.3 + 0.35 * zoom)) for c in DOT)      # dim at US scale: the roads are the story
         layer = img.copy()
         for u, v in zip(px[m], py[m]):
             if r >= 2.5:                                                    # 2px surface ring once dots are big
@@ -386,48 +404,50 @@ class Reel:
         p = self.d["people"]
         reached = p["cum"][int(np.searchsorted(p["t"], drive_s, side="right"))] / p["total"]
         if card_a < 1:
-            K.stats(d, [(hm(drive_s), "drive time", True), (f"{round(100 * reached)}%", "of people reached", False),
+            K.stats(d, [(hm(drive_s), "drive time", True), (pct_down(reached), "of people reached", False),
                         (f"{len(self.d['hx']):,}", "hospitals with an ER", False)])
             self.people_bar(d, drive_s)
         K.watermark(d, 1 - card_a)
-        if held in self.d["region"] and RACE_START <= sec <= RACE_END:
-            a, b = held_range(held)
-            al = min(1.0, (sec - a) / 0.4, (b - sec) / 0.4)
+
+        def label(kicker: str, line: str, place: str, al: float) -> None:
             if al > 0:
-                p30, p60, n_h = self.d["region"][held]
                 layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
-                K.now_label(ImageDraw.Draw(layer), "The " + held if held != "Appalachia" else held,
-                            f"{p30}% of people live 30+ min from an ER" + (f" · {p60}% an hour+" if p60 else ""),
-                            f"{n_h:,} hospitals with an ER in view")
+                K.now_label(ImageDraw.Draw(layer), kicker, line, place)
                 layer.putalpha(layer.getchannel("A").point(lambda v: int(v * al)))
                 im.alpha_composite(layer)
-        if self.upto[i] >= len(self.d["ts"]) and sec <= CARD_IN:      # the last road: a callout where it is
+
+        if held in self.d["region"] and RACE_START <= sec <= PULL:
+            a, b = held_range(held)
+            p30, longest, n_h = self.d["region"][held]
+            share = f"{p30:.0f}%" if p30 >= 1 else "<1%"
+            label(KICKERS.get(held, "The " + held), f"{share} live 30+ min out · longest drive {hm_long(longest)}",
+                  f"{n_h:,} ERs in view", min(1.0, (sec - a) / 0.4, (b - sec) / 0.4))
+        if self.upto[i] >= len(self.d["ts"]) and sec <= PULL + 0.3:      # the last road: a callout where it is
             j = self.d["last"]
             (vx, vy, vk), _ = self.camera(sec)
             x = (self.d["mx"][j] - vx) / vk + W / 2
             y = (vy - self.d["my"][j]) / vk + K.MAP_CENTER_Y
-            al = min(1.0, (sec - self.secs[np.argmax(self.upto >= len(self.d["ts"]))]) / 0.2)
+            al = min(1.0, (sec - REACHED) / 0.2, (PULL + 0.3 - sec) / 0.3)
             over = Image.new("RGBA", im.size, (0, 0, 0, 0))
             K.callout(ImageDraw.Draw(over), x, y, f"Farthest from an ER: {hm_long(self.d['ts'][-1])}", al)
             im.alpha_composite(over)
-        if held == "Last" and sec <= RACE_END:                     # the whole final hold, not just once reached
-            al = min(1.0, (sec - SHOTS[-1][0]) / 0.4, (RACE_END - sec) / 0.4)
-            if al > 0:
-                lay = Image.new("RGBA", im.size, (0, 0, 0, 0))
-                K.now_label(ImageDraw.Draw(lay), "The last road to reach", self.d["place"],
-                            "private logging roads, gravel most of the way"
-                            if self.d["place"] == "North Maine Woods" else "the longest drive to an ER")
-                lay.putalpha(lay.getchannel("A").point(lambda v: int(v * al)))
-                im.alpha_composite(lay)
+        if held == "Last" and sec <= PULL:                         # the whole final hold, not just once reached
+            label("The last road to reach", self.d["place"],
+                  "private logging roads, gravel most of the way"
+                  if self.d["place"] == "North Maine Woods" else "the longest drive to an ER",
+                  min(1.0, (sec - SHOTS[-1][0]) / 0.4, (PULL - sec) / 0.4))
+        if held == "final":                                       # the finished map, held
+            a = PULL + K.PULL_OUT
+            label("Every road, every ER", f"{millions(self.d['far30'])} people live 30+ min from one",
+                  "How far is yours?", min(1.0, (sec - a) / 0.4, (CARD_IN - sec) / 0.4))
         hook_a = 1 - K.smoothstep((sec - (K.HOOK - 0.3)) / 0.5)
         if hook_a > 0:
-            K.hook(im, [millions(self.d["far30"]), "Americans"],
-                   f"live 30+ min from an ER · {millions(self.d['far60'])} an hour+", hook_a)
+            K.hook(im, [millions(self.d["far30"]), "Americans"], "live 30+ minutes from an ER", hook_a)
         self.end_card(im, card_a)
 
     def end_card(self, im: Image.Image, alpha: float) -> int:
         """KPI rows, then the five states with the largest share of people 30+ min from an ER: ranked
-        stacked bars (30-60 min, then 1 hour+, 2px gap, the map's colours), total at the tip, no grid."""
+        stacked bars (one segment per far band, 2px gaps, the map's colours), total at the tip, no grid."""
         rows = [(f"{len(self.d['hx']):,}", "hospitals with an ER open to everyone"),
                 (millions(self.d["far30"]), "people 30+ min from one"),
                 (millions(self.d["far60"]), "people an hour+ from one"),
@@ -437,7 +457,7 @@ class Reel:
         bars_top = top + 40 + len(rows) * 100 + 20
         footer = ["Drive time from the nearest ER, no traffic",
                   "Hospitals: CMS (2026)   People: Census 2020   Roads: OSM   Routing: OSRM"]
-        bottom = bars_top + 88 + 5 * 44 + 30 + 36 * (len(footer) + 1) + 30
+        bottom = bars_top + 88 + 5 * 44 + 30 + 36 * (len(footer) + 1) + 30 + 50
         if alpha <= 0:
             return bottom
         layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
@@ -448,29 +468,35 @@ class Reel:
             d.text((96, y), big, font=K.F("card"), fill=K.INK)
             d.text((W - 96, y + 34), label, font=K.F("small"), fill=K.MUTED, anchor="rm")
         d.text((96, bars_top), "Share of people 30+ min from an ER", font=K.F("label"), fill=K.INK)
+        far = range(FAR, len(RAMP))
         lx = 96
-        for c in (1, 2):                                                    # legend row: the two stacked parts
+        for c in far:                                                       # legend row: the stacked parts
             d.rounded_rectangle((lx, bars_top + 50, lx + 14, bars_top + 64), 3, fill=RAMP[c])
             d.text((lx + 22, bars_top + 57), BAND_LABELS[c], font=K.F("small"), fill=K.MUTED, anchor="lm")
             lx += 22 + K.F("small").getlength(BAND_LABELS[c]) + 36
         top5 = self.d["states"][:5]
         bx0, bx1 = 170, W - 190
-        scale = (bx1 - bx0) / (top5[0][0] + top5[0][1])
-        for r, (s30, s60, st) in enumerate(top5):
+        scale = (bx1 - bx0) / sum(top5[0][0])
+        for r, (shares, st) in enumerate(top5):
             y = bars_top + 88 + r * 44 + 10
             d.text((bx0 - 20, y + 12), st, font=K.F("label"), fill=K.MUTED, anchor="rm")
-            w1, w2 = s30 * scale, s60 * scale
-            d.rectangle((bx0, y, bx0 + max(1, w1 - (2 if w2 >= 1 else 0)), y + 24), fill=RAMP[1])
-            if w2 >= 1:
-                d.rounded_rectangle((bx0 + w1, y, bx0 + w1 + max(w2, 8), y + 24), 4, fill=RAMP[2],
-                                    corners=(False, True, True, False))
-            d.text((bx0 + w1 + w2 + 14, y + 12), f"{round(100 * (s30 + s60))}%", font=K.F("label"),
+            segs = [(c, s * scale) for c, s in zip(far, shares) if s * scale >= 1]
+            x = float(bx0)
+            for k, (c, w) in enumerate(segs):
+                if k == len(segs) - 1:
+                    d.rounded_rectangle((x, y, x + max(w, 8), y + 24), 4, fill=RAMP[c],
+                                        corners=(False, True, True, False))
+                else:
+                    d.rectangle((x, y, x + w - 2, y + 24), fill=RAMP[c])
+                x += w
+            d.text((bx0 + sum(shares) * scale + 14, y + 12), f"{round(100 * sum(shares))}%", font=K.F("label"),
                    fill=K.INK, anchor="lm")
         y = bars_top + 88 + 5 * 44 + 30
         for line in footer:
             d.text((W / 2, y), line, font=K.F("small"), fill=K.MUTED, anchor="mt")
             y += 36
         d.text((W / 2, y + 4), f"{K.SERIES}  ·  {K.HANDLE}", font=K.F("label"), fill=K.INK, anchor="mt")
+        d.text((W / 2, y + 54), "How far is your nearest ER?", font=K.F("label"), fill=K.ACCENT, anchor="mt")
         layer.putalpha(layer.getchannel("A").point(lambda v: int(v * alpha)))
         im.alpha_composite(layer)
         return bottom
@@ -518,7 +544,7 @@ def main() -> None:
     d = reel.d
     print(f"ready in {time.time() - t0:.0f} s; 30+ min {d['far30']:,.0f} people, 1 h+ {d['far60']:,.0f}; "
           f"last road {hm_long(d['ts'][-1])} {d['place']}; regions {d['region']}; "
-          f"states {[(s, round(100 * a), round(100 * b)) for a, b, s in d['states'][:8]]}", flush=True)
+          f"states {[(s, [round(100 * v) for v in sh]) for sh, s in d['states'][:8]]}", flush=True)
     if args.stills:
         for sec in map(float, args.stills.split(",")):
             reel.cv = None
