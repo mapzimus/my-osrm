@@ -47,19 +47,31 @@ TEXT = {0: COLOURS[0], 1: (40, 170, 120)}   # Starbucks text a shade lighter tha
 
 # Views: (lon, lat, frame width km) or "US" (the lower 48 in the map area).
 VIEWS = {"Boston": (-71.06, 42.36, 110), "Northeast": (-73.6, 41.3, 650), "DC": (-76.9, 39.1, 220),
-         "Chicago": (-87.85, 41.85, 230), "Seattle": (-122.3, 47.55, 150), "US": None}
+         "Chicago": (-87.85, 41.85, 230), "Seattle": (-122.3, 47.55, 150),
+         "California": (-119.6, 36.9, 1300), "Texas": (-99.3, 31.3, 1400), "Florida": (-82.2, 28.2, 900),
+         "Midwest": (-90.0, 41.8, 1400), "US": None,
+         "West Texas": (-104.75, 30.45, 160)}                 # the last roads to be reached (6:32)
 # (second, view): hold where two keys name the same view, move (smoothstep, zoom out and in) between.
-SHOTS = [(RACE_START, "Boston"), (9.0, "Boston"), (12.5, "Northeast"), (14.0, "Northeast"), (17.0, "DC"),
-         (22.5, "DC"), (26.0, "Chicago"), (31.0, "Chicago"), (35.5, "Seattle"), (40.5, "Seattle"), (45.5, "US")]
-# Now label per held view: (kicker, line, place line). Splits filled in from the data.
-LABELS = {"Boston": ("Boston", "{d}% of roads: Dunkin'", "Dunkin' started in Quincy, MA, 1950"),
-          "Northeast": ("The Northeast", "Dunkin' country", "New York {d_ny}% · Philadelphia {d_ph}% Dunkin'"),
-          "DC": ("The frontline", "Washington–Baltimore: {d}% / {s}%", "Dunkin' / Starbucks, the closest split"),
-          "Chicago": ("Chicago", "{d}% of roads: Dunkin'", "a Dunkin' island in the Midwest"),
-          "Seattle": ("Seattle", "{s}% of roads: Starbucks", "where Starbucks started, 1971")}
+# Max (2026-10-14): shorter city stops, regional views as the country fills, end way in on West Texas.
+SHOTS = [(RACE_START, "Boston"), (6.5, "Boston"), (8.0, "Northeast"), (9.5, "Northeast"), (11.0, "DC"),
+         (13.0, "DC"), (14.8, "Chicago"), (16.8, "Chicago"), (19.0, "Seattle"), (21.0, "Seattle"),
+         (22.6, "California"), (25.0, "California"), (26.8, "Texas"), (29.0, "Texas"), (30.8, "Florida"),
+         (33.0, "Florida"), (34.8, "Midwest"), (37.0, "Midwest"), (39.0, "US"), (42.0, "US"),
+         (44.0, "West Texas")]
+# Now label per held view: (kicker, line, place). {d} {s}: Dunkin' / Starbucks share of road length,
+# within CITY_KM of a city in CITIES, otherwise inside the view's frame.
+LABELS = {"Boston": ("Boston", "{d}% Dunkin'", "Dunkin' opened its first shop in Quincy, MA, in 1950"),
+          "Northeast": ("The Northeast", "New York {d_ny}% · Philadelphia {d_ph}%", "Dunkin' share of the roads"),
+          "DC": ("Washington–Baltimore", "Dunkin' {d}%, Starbucks {s}%", ""),
+          "Chicago": ("Chicago", "{d}% Dunkin'", "Indianapolis: {d_in}% Dunkin'"),
+          "Seattle": ("Seattle", "{s}% Starbucks", "Starbucks opened its first store here in 1971"),
+          "California": ("California", "{s}% Starbucks", ""),
+          "Texas": ("Texas", "{s}% Starbucks", ""),
+          "Florida": ("Florida", "{d}% Dunkin'", ""),
+          "Midwest": ("The Midwest", "{s}% Starbucks", ""),
+          "West Texas": ("West Texas", "{d}% Dunkin'", "the slowest drive to coffee in the lower 48")}
 CITIES = {"Boston": (-71.06, 42.36), "DC": (-76.9, 39.1), "Chicago": (-87.7, 41.88), "Seattle": (-122.33, 47.6),
-          "ny": (-73.99, 40.73), "ph": (-75.16, 39.95)}
-
+          "ny": (-73.99, 40.73), "ph": (-75.16, 39.95), "in": (-86.16, 39.77)}
 
 # --- data -------------------------------------------------------------------------
 
@@ -73,9 +85,14 @@ def prepare():
     cum = [np.concatenate([[0.0], np.cumsum(np.where(pc["chain"][order] == c, length[order], 0.0))]) / total
            for c in (0, 1)]
     split = {}
-    for name, (lo, la) in CITIES.items():
-        x, y = albers([lo], [la])
-        m = np.hypot(mx - x[0], my - y[0]) < CITY_KM
+    for name in list(CITIES) + [v for v in VIEWS if v not in CITIES and VIEWS[v]]:
+        if name in CITIES:
+            x, y = albers([CITIES[name][0]], [CITIES[name][1]])
+            m = np.hypot(mx - x[0], my - y[0]) < CITY_KM
+        else:                                                 # regions: what's inside the frame
+            lon, lat, width = VIEWS[name]
+            x, y = albers([lon], [lat])
+            m = (np.abs(mx - x[0]) < width / 2) & (np.abs(my - y[0]) < width / 2)
         d = length[m & (pc["chain"] == 0)].sum() / length[m].sum()
         split[name] = (round(100 * d), round(100 * (1 - d)))
     last = order[-1]
@@ -215,9 +232,9 @@ class Reel:
         order, pc, tf = self.d["order"], self.d["pc"], self.d["t_fade"]
         if self.cv is None or view != self.view or upto < self.done:
             self.cv = canvas_for(view)
-            self.cv.add(pc, self.in_view(order[:upto], view), tf)
+            self.cv.add(pc, self.in_view(order[:upto], view), tf, *close_up(view))
         else:
-            self.cv.add(pc, self.in_view(order[self.done:upto], view), tf)
+            self.cv.add(pc, self.in_view(order[self.done:upto], view), tf, *close_up(view))
         self.view, self.done = view, upto
         return self.cv.img[:, :, ::-1].copy()                 # BGR -> RGB
 
@@ -225,10 +242,11 @@ class Reel:
     def end_rows(self):
         dn, st = self.d["share"]
         n = self.d["stores"]
-        return ([(f"{round(100 * st)}%", "of major roads: Starbucks is closer", TEXT[1]),
-                 (f"{round(100 * dn)}%", "of major roads: Dunkin' is closer", TEXT[0]),
+        m = int(self.d["ts"][-1] // 60)
+        return ([(f"{round(100 * st)}%", "of major roads: Starbucks is the shorter drive", TEXT[1]),
+                 (f"{round(100 * dn)}%", "of major roads: Dunkin' is the shorter drive", TEXT[0]),
                  (f"{n['starbucks']:,} vs {n['dunkin']:,}", "Starbucks vs. Dunkin' stores", K.INK),
-                 (hm(self.d["ts"][-1]), "longest drive to either: West Texas", K.INK)],
+                 (f"{m // 60} h {m % 60} min", "slowest road to reach: West Texas", K.INK)],
                 ["Drive time from the nearest store, no traffic",
                  "Stores: AllThePlaces (Oct 2026)   Roads: OpenStreetMap   Routing: OSRM"])
 
@@ -236,14 +254,14 @@ class Reel:
         sp = self.d["split"]
         d, s = sp.get(name, (0, 0))
         kick, line, place = LABELS[name]
-        f = dict(d=d, s=s, d_ny=sp["ny"][0], d_ph=sp["ph"][0])
+        f = dict(d=d, s=s, d_ny=sp["ny"][0], d_ph=sp["ph"][0], d_in=sp["in"][0])
         return kick, line.format(**f), place.format(**f)
 
     def hud(self, im: Image.Image, i: int, held: str | None) -> None:
         sec = self.secs[i]
         d = ImageDraw.Draw(im)
         card_a = K.smoothstep((sec - CARD_IN) / 0.8)
-        K.header(d, "Dunkin' vs. Starbucks", "Every store leaves at once. First to each road wins.")
+        K.header(d, "Dunkin' vs. Starbucks", "Each road is colored by the chain that's a shorter drive away")
         up = int(self.upto[i]) if sec >= RACE_START else 0
         c0, c1 = self.d["cum"][0][up], self.d["cum"][1][up]
         if card_a < 1:
@@ -271,13 +289,13 @@ class Reel:
             y = (vy - self.d["my"][j]) / vk + K.MAP_CENTER_Y
             al = min(1.0, (sec - self.secs[np.argmax(self.upto >= len(self.d["ts"]))]) / 0.2)
             over = Image.new("RGBA", im.size, (0, 0, 0, 0))
-            K.callout(ImageDraw.Draw(over), x, y, f"Last road: {hm(self.d['ts'][-1])}", al)
+            K.callout(ImageDraw.Draw(over), x, y, f"Last road reached: {hm(self.d['ts'][-1])}", al)
             im.alpha_composite(over)
         hook_a = 1 - K.smoothstep((sec - (K.HOOK - 0.3)) / 0.5)
         dn, st = self.d["share"]
         if hook_a > 0:
             hook(im, [(f"Starbucks {round(100 * st)}%", TEXT[1]), (f"Dunkin' {round(100 * dn)}%", TEXT[0])],
-                 "of US roads: whose coffee is the closer drive", hook_a)
+                 "of US roads where it's the shorter drive", hook_a)
         end_card(im, *self.end_rows(), card_a)
 
     def frame(self, i: int) -> bytes:
@@ -287,14 +305,18 @@ class Reel:
             if self.hook_img is None:
                 self.hook_img = self.roads(i, view, len(self.d["ts"]))
             img = self.hook_img
-        elif sec > RACE_END:                                         # pull-out: resample the finished map
-            if self.final is None:
-                self.final = self.roads(i, view_of("US", self.d["pc"]), len(self.d["ts"]))
+        elif sec > RACE_END and view[2] > 0.5 * self.us_k:            # pull-out, wide: resample the finished map
+            if self.final is None:                                  # drawn once at 2x, 2 px lines
+                ux, uy, uk = view_of("US", self.d["pc"])
+                big = Canvas((0, 0, 1, 1), 2 * W, 2 * H)
+                big.s, big.ox, big.oy = 2 / uk, W - 2 * ux / uk, 2 * K.MAP_CENTER_Y + 2 * uy / uk
+                big.add(self.d["pc"], self.d["order"], self.d["t_fade"], thick=2)
+                self.final = big.img[:, :, ::-1].copy()
             (ux, uy, uk), (x, y, k) = view_of("US", self.d["pc"]), view
-            sc = uk / k
-            m = np.float32([[sc, 0, W / 2 - W / 2 * sc + (ux - x) / k],
-                            [0, sc, K.MAP_CENTER_Y - K.MAP_CENTER_Y * sc + (y - uy) / k]])
-            img = cv2.warpAffine(self.final, m, (W, H), flags=cv2.INTER_AREA)
+            sc = uk / (2 * k)
+            m = np.float32([[sc, 0, W / 2 - uk / k * W / 2 + (ux - x) / k],
+                            [0, sc, K.MAP_CENTER_Y - uk / k * K.MAP_CENTER_Y + (y - uy) / k]])
+            img = self.dots(cv2.warpAffine(self.final, m, (W, H), flags=cv2.INTER_AREA), view, self.drive[i])
         else:
             img = self.dots(self.roads(i, view, int(self.upto[i])), view, self.drive[i])
             fa = 1 - (sec - K.HOOK) / FADE_S                        # the finished map fades out
@@ -304,6 +326,14 @@ class Reel:
         im.alpha_composite(self.shade)
         self.hud(im, i, held)
         return im.convert("RGB").tobytes()
+
+
+def close_up(view) -> tuple[int, float]:
+    """Line width and dimmest brightness for a view: zoomed in tight, late roads (all at the
+    national fade floor) would be near black, so close-ups draw 2 px lines with a higher floor."""
+    from draw import FADE_FLOOR
+    z = min(1.0, max(0.0, (0.6 - view[2]) / 0.45))           # 0 at >= 0.6 km/px, 1 at <= 0.15
+    return (2 if view[2] < 0.35 else 1), FADE_FLOOR + (0.6 - FADE_FLOOR) * z
 
 
 def held_range(name: str) -> tuple[float, float]:

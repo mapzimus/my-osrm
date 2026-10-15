@@ -94,15 +94,15 @@ class Canvas:
     def px(self, p: np.ndarray) -> np.ndarray:
         return np.column_stack([p[:, 0] * self.s + self.ox, self.oy - p[:, 1] * self.s])
 
-    def add(self, pc: dict, sel: np.ndarray, t_max: float, thick: int = 1) -> None:
-        """Draw pieces[sel]; brightness falls from 1 at t=0 to FADE_FLOOR at t_max."""
+    def add(self, pc: dict, sel: np.ndarray, t_max: float, thick: int = 1, floor: float = FADE_FLOOR) -> None:
+        """Draw pieces[sel]; brightness falls from 1 at t=0 to floor at t_max."""
         if not len(sel):
             return
         f = np.clip(pc["t"][sel] / t_max, 0, 1) ** FADE_POWER
         lvl = np.minimum((f * LEVELS).astype(np.int8), LEVELS - 1)
         ch = pc["chain"][sel]
         for L in range(LEVELS - 1, -1, -1):                   # dim first, bright on top
-            k = 1 - (1 - FADE_FLOOR) * (L + 0.5) / LEVELS
+            k = 1 - (1 - floor) * (L + 0.5) / LEVELS
             for c, rgb in enumerate(COLOURS):
                 idx = sel[(lvl == L) & (ch == c)]
                 for a in range(0, len(idx), CHUNK):           # bounded memory: cv2 wants one array per line
