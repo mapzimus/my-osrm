@@ -431,7 +431,7 @@ class Reel:
         x, w = float(x0), x1 - x0
         segs = [(b, s * w) for b, s in enumerate(shares) if s * w >= 1]
         for i, (b, sw) in enumerate(segs):
-            r = (x, y0, x + sw - (2 if i < len(segs) - 1 else 0), y1)
+            r = (x, y0, max(x, x + sw - (2 if i < len(segs) - 1 else 0)), y1)   # a 1-2 px sliver: no gap
             if i == len(segs) - 1 and sw > 8:
                 d.rounded_rectangle(r, 4, fill=RAMP[b], corners=(False, True, True, False))
             else:
