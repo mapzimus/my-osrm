@@ -289,7 +289,7 @@ class Reel:
         self.card_view = us_view(self.card_bottom + 30, K.TEXT_FLOOR, pc)
         self.shade = K.shade()
         self.cv, self.view, self.done = None, None, 0
-        self.hook_img, self.final = None, None
+        self.hook_img, self.final, self.final_done = None, None, 0
         self.us_k = self.view_of("US")[2]
 
     def view_of(self, name: str) -> tuple[float, float, float]:
@@ -482,23 +482,25 @@ class Reel:
             if self.hook_img is None:
                 self.hook_img = self.roads(view, len(self.d["ts"]))
             img = self.hook_img
-        elif sec > RACE_END and view[2] > 0.5 * self.us_k:           # pull-out, wide: resample the finished map
-            if self.final is None:
+        elif view[2] > 0.5 * self.us_k:          # any wide shot: resample one 2x US map, drawn incrementally
+            upto = int(self.upto[i])               # (redrawing millions of pieces per moving frame took 5-10 s)
+            if self.final is None or upto < self.final_done:
                 ux, uy, uk = self.view_of("US")
-                big = Canvas((0, 0, 1, 1), 2 * W, 2 * H)
-                big.s, big.ox, big.oy = 2 / uk, W - 2 * ux / uk, 2 * K.MAP_CENTER_Y + 2 * uy / uk
-                big.add(self.d["pc"], self.d["order"], self.d["t_fade"], 2, 1.0)
-                self.final = big.img[:, :, ::-1].copy()
+                self.final = Canvas((0, 0, 1, 1), 2 * W, 2 * H)
+                self.final.s, self.final.ox, self.final.oy = 2 / uk, W - 2 * ux / uk, 2 * K.MAP_CENTER_Y + 2 * uy / uk
+                self.final_done = 0
+            self.final.add(self.d["pc"], self.d["order"][self.final_done:upto], self.d["t_fade"], 2, 1.0)
+            self.final_done = upto
             (ux, uy, uk), (x, y, k) = self.view_of("US"), view
             sc = uk / (2 * k)
             m = np.float32([[sc, 0, W / 2 - uk / k * W / 2 + (ux - x) / k],
                             [0, sc, K.MAP_CENTER_Y - uk / k * K.MAP_CENTER_Y + (y - uy) / k]])
-            img = self.dots(cv2.warpAffine(self.final, m, (W, H), flags=cv2.INTER_AREA), view)
+            img = self.dots(cv2.warpAffine(self.final.img[:, :, ::-1], m, (W, H), flags=cv2.INTER_AREA), view)
         else:
             img = self.dots(self.roads(view, int(self.upto[i])), view)
-            fa = 1 - (sec - K.HOOK) / FADE_S
-            if 0 < fa <= 1 and self.hook_img is not None:
-                img = (img * (1 - fa) + self.hook_img * fa).astype(np.uint8)
+        fa = 1 - (sec - K.HOOK) / FADE_S                            # the hook's finished map fades out
+        if held != "hook" and 0 < fa <= 1 and self.hook_img is not None:
+            img = (img * (1 - fa) + self.hook_img * fa).astype(np.uint8)
         im = Image.fromarray(img).convert("RGBA")
         im.alpha_composite(self.shade)
         self.hud(im, i, held)
