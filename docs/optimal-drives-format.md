@@ -30,11 +30,13 @@ Reference video: `experiments/college_tour/` (every college in New England).
 | Main format | 1080 × 1920 (9:16), 30 fps, **one export per platform** |
 | Platforms | `tiktok` and `reels` (Instagram); `K.use(platform)` sets the safe zones |
 | Length | **65 s** (Max, 2026-10-13: "They should be 65s") |
-| Encode | H.264, CRF 18, `yuv420p`, `+faststart`, AAC 192 kb/s |
+| Encode | H.264 on the GPU (`h264_nvenc` p7, CQ 19), `yuv420p`, `+faststart`, AAC 192 kb/s; `-Cpu` = libx264 CRF 18 (§14) |
 | Output | `experiments/<slug>/out/<slug>_<platform>.mp4` |
 
-The two exports share the timeline, map and camera. Only the layout moves:
-each app covers a different part of the screen.
+The two exports share the timeline, map and camera path. Only the layout moves:
+each app covers a different part of the screen, and the camera fits the map to
+that platform's band, so the two map pictures differ slightly and each is drawn
+on its own.
 
 ## 3. Safe zones
 
@@ -227,15 +229,35 @@ Always render with the launcher (Max, 2026-10-14: "I want it done this way every
 
 ```
 .\experiments\render.ps1 <video> [-Platform reels] [-Parts 3] [-Sound]
+                                 [-Workers 6] [-KeepEngine] [-Cpu] [-Only k]
 ```
 
 - **Its own hidden process.** Never as a Claude Code background job: Claude Code
-  kills those when RAM runs short, and a full render is 35+ min beside a 5 GB
-  OSRM container. The launcher detaches and logs to `<video>/out/<platform>_render.log`;
-  the last line is `ALL DONE` or `... FAILED`. Watch that file; don't hold the process.
-- **1 worker, in parts.** Each part (default 3, ~22 s of video each) is a separate
-  Python run, so memory is released between parts. A crash costs one part; rerunning
-  the same command skips the parts that already finished.
+  kills those when RAM runs short. The launcher detaches and logs to
+  `<video>/out/<platform>_render.log`; the last line is `ALL DONE` or `... FAILED`.
+  Watch that file; don't hold the process.
+- **Engine off while rendering.** The videos never query OSRM (routes are in
+  `cache/tour.json`), so the launcher stops `my-osrm-na-ferry`, drops the WSL page
+  cache, and restarts the container when done (only if it was running).
+  `-KeepEngine` leaves it up.
+- **Up to 6 workers, fitted to free RAM.** About 2 GB per worker, with 3 GB kept for
+  the rest of the machine; the log says when it cut the count. Other big jobs (the
+  DOK-tagger scorer takes ~9 GB) make it drop to 1–2 workers on its own.
+- **GPU encode.** `reel_kit.encoder()` uses `h264_nvenc` (p7, hq, CQ 19) on the
+  RTX 4070, which frees the CPU to draw frames. `-Cpu` (or `OD_ENCODER=x264`) goes back
+  to libx264 slow CRF 18. Measured against libx264: 48.6 dB PSNR, lowest frame 43 dB,
+  which looks the same.
+- **Measured 2026-10-14** (walmart, TikTok, part 3 of 3, 650 frames):
+
+  | Setup | Time |
+  |---|---|
+  | 1 worker, engine up, libx264 | ~565 s |
+  | 6 workers, engine off, NVENC | 240 s |
+
+- **In parts.** Each part (default 3, ~22 s of video each) is a separate Python run,
+  so memory is released between parts. A crash costs one part; rerunning the same
+  command skips the parts that already finished. `-Only k` renders just part k
+  (trials); delete that part file afterwards, or the next full render skips it.
 - **Join, then sound.** `--join N` stream-copies the parts (no re-encode, no quality
   loss), then `--sound` muxes the soundtrack if asked.
 - **Stills first.** Check changes with `video.py --stills 12,30,64` (seconds) before

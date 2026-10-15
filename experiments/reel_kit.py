@@ -10,6 +10,7 @@ A video imports this and only supplies its own data, map and camera:
 from __future__ import annotations
 
 import math
+import os
 import subprocess
 import wave
 from pathlib import Path
@@ -325,11 +326,21 @@ def soundtrack(path: Path, seconds: float, ticks: list[float], chimes: list[floa
 
 # --- encoder ------------------------------------------------------------------------------
 
+# GPU by default (RTX 4070, 2026-10-14): NVENC frees the CPU threads libx264 took, for
+# drawing frames. OD_ENCODER=x264 falls back to the CPU (slow preset, CRF 18).
+CODEC = {
+    "nvenc": ["-c:v", "h264_nvenc", "-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", "19",
+              "-b:v", "0", "-spatial_aq", "1", "-temporal_aq", "1"],
+    "x264": ["-c:v", "libx264", "-preset", "slow", "-crf", "18"],
+}
+
+
 def encoder(path: Path) -> subprocess.Popen:
+    codec = CODEC[os.environ.get("OD_ENCODER", "nvenc")]
     return subprocess.Popen(
         ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
-         "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", "slow",
-         "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(path)],
+         "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-", *codec,
+         "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(path)],
         stdin=subprocess.PIPE)
 
 
