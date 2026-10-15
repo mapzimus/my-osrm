@@ -54,11 +54,31 @@ def sample(g) -> list[tuple[float, float]]:
 
 
 def ocean(lon: float, lat: float) -> str:
+    """Pacific west of -114. Gulf by which side of Florida a point is on (Max, 2026-10-15: the first rule,
+    lat < 31 and lon < -81.25, put Jacksonville-St. Augustine and south Georgia on the Gulf):
+    north of 28 N only west of -82.2 (Big Bend, Panhandle and west); 25.3-28 N west of -81.15
+    (Tampa to Naples); the Keys and everything east are Atlantic."""
     if lon < -114:
         return "Pacific"
-    if lat < 31.0 and lon < -81.25 and lat >= 25.3:
+    if lat < 31.0 and ((lat >= 28.0 and lon < -82.2) or (25.3 <= lat < 28.0 and lon < -81.15)):
         return "Gulf"
     return "Atlantic"
+
+
+def reclassify() -> None:
+    """Relabel cache/stores.csv with ocean() (no re-snapping: the road points are within 2 km)."""
+    rows = list(csv.DictReader(open(CACHE / "stores.csv", encoding="utf-8")))
+    moved = 0
+    for r in rows:
+        if r["chain"] != "Great Lakes":
+            new = ocean(float(r["lon"]), float(r["lat"]))
+            moved += new != r["chain"]
+            r["chain"] = r["name"] = new
+    with open(CACHE / "stores.csv", "w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, ["chain", "name", "lon", "lat"])
+        w.writeheader()
+        w.writerows(rows)
+    print(f"relabelled {moved} shore points")
 
 
 def snap(p):
@@ -102,4 +122,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    reclassify() if "--reclassify" in sys.argv else main()

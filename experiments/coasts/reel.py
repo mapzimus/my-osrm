@@ -60,17 +60,16 @@ FADE = 0.3                              # brightness of the slowest roads (Turf 
 DENVER = (-104.99, 39.74)
 DOT = (236, 239, 244)
 
-VIEWS = {"Boston": (-71.08, 42.33, 120), "Chicago": (-87.9, 41.9, 300), "Gulf Coast": (-91.0, 30.6, 750),
-         "Appalachia": (-81.6, 37.6, 750), "Mountain West": (-113.5, 41.0, 1300), "Great Plains": (-98.5, 42.5, 1300),
-         "US": None}
-# (second, view): hold where two keys name the same view, move between. "Last" = the farthest road.
-# Denver is the finale: its roads light up at ~15:40 on the clock, and the farthest road (Larimer County)
-# is next door, so the last shot frames both (LAST_KM).
-SHOTS = [(RACE_START, "Boston"), (6.3, "Boston"), (7.9, "Chicago"), (10.2, "Chicago"), (12.0, "Gulf Coast"),
-         (14.6, "Gulf Coast"), (16.3, "Appalachia"), (18.8, "Appalachia"), (20.8, "Mountain West"),
-         (24.0, "Mountain West"), (26.0, "Great Plains"), (29.5, "Great Plains"), (31.8, "US"), (36.0, "US"),
-         (39.0, "Last")]
-KICKERS = {"Boston": "Boston", "Chicago": "Chicago", "Appalachia": "Appalachia"}
+# Max (2026-10-15, v2): no zooms on coastal cities that are 100% one shore; every stop is where
+# basins meet. Denver comes last and late (the farthest road is next door).
+VIEWS = {"South Florida": (-81.0, 26.6, 330), "Georgia": (-83.8, 32.6, 600), "Appalachia": (-81.6, 37.6, 750),
+         "Ohio Valley": (-86.2, 39.6, 650), "Great Plains": (-98.5, 42.5, 1300), "Southwest": (-107.5, 33.8, 1000),
+         "Northern Rockies": (-110.5, 46.8, 1000), "US": None}
+SHOTS = [(RACE_START, "South Florida"), (7.0, "South Florida"), (8.8, "Georgia"), (11.8, "Georgia"),
+         (13.6, "Appalachia"), (17.0, "Appalachia"), (18.8, "Ohio Valley"), (22.0, "Ohio Valley"),
+         (24.2, "Great Plains"), (28.0, "Great Plains"), (30.2, "Southwest"), (34.0, "Southwest"),
+         (36.2, "Northern Rockies"), (40.0, "Northern Rockies"), (42.0, "US"), (45.0, "US"), (47.5, "Last")]
+KICKERS = {"South Florida": "South Florida", "Georgia": "Georgia", "Appalachia": "Appalachia"}
 LAST_KM = 320                            # frame width on the farthest road (wide enough for Denver too)
 DETOUR = 3.0                             # road_ok(): drive time / straight-line estimate above this is a map error
 # road_ok(): (south, north, west, east, drop only over this many hours), why. Checked 2026-10-15.
@@ -311,14 +310,13 @@ def millions(n: float) -> str:
 
 
 def HOOK_LINES(d: dict) -> list[str]:
-    return ["Denver is a", "three-way tie"] if d["denver"][2][0] - d["denver"][0][0] < 3600 else \
-        [pct_down(max(d["share"].values())), "of Americans"]
+    """Max (2026-10-15): not the Denver intro. The surprise in the data: more Americans live closest to
+    the Great Lakes than to the Pacific."""
+    return ["Great Lakes " + pct_down(d["share"]["Great Lakes"]), "Pacific " + pct_down(d["share"]["Pacific"])]
 
 
 def HOOK_SUB(d: dict) -> str:
-    (t1, s1), (t2, s2), (t3, s3) = d["denver"][:3]
-    return (f"{s1}, {s2} and {s3} are all {hm(t1)} to {hm(t3)} away" if t3 - t1 < 3600
-            else f"are closest to {SHORE_TEXT[max(d['share'], key=d['share'].get)]}")
+    return "More Americans live closest to the Great Lakes than to the Pacific"
 
 
 def pct_down(share: float) -> str:
@@ -469,8 +467,8 @@ class Reel:
             a, b = held_range(held)
             al = min(1.0, (sec - a) / 0.4, (b - sec) / 0.4)
             top, pct, second, pct2 = self.d["region"][held]
-            label(KICKERS.get(held, "The " + held), f"{pct:.0f}% of people here are closest to {SHORE_TEXT[top]}",
-                  f"next: {SHORE_TEXT[second]}, {pct2:.0f}%" if pct2 >= 1 else "nobody here is closer to another shore", al)
+            label(KICKERS.get(held, "The " + held), f"{pct:.0f}% {top}  ·  {pct2:.0f}% {second}",
+                  "share of people here by nearest shore", al)
         if self.upto[i] >= len(self.d["ts"]) and sec <= PULL + 0.3:      # the last road: a callout where it is
             j = self.d["last"]
             (vx, vy, vk), _ = self.camera(sec)
