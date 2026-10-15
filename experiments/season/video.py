@@ -1,9 +1,8 @@
-"""Optimal Drives: a Red Sox fan drives to every game of the 2026 season, home and away (Max,
+"""Optimal Drives: driving to every Red Sox game of the 2026 season, home and away (Max,
 2026-10-15: "the perspective should be a fan following the team ... we all know they fly").
 
 Roads are coloured by how many times the season drives them (build.py "pass_": 1x, 2x, 3-4x,
-5-9x, 10x+), a red ordinal ramp validated on the land colour (dataviz: one hue, monotone, light end
-2.45:1). Each stop shows the series with W/L scores. The nor'easter moved the finale to Tropicana Field.
+5-9x, 10x+), a red ordinal ramp, darker = more (dataviz: one hue, monotone, dark end 2.45:1). Each stop shows the series with W/L scores. The nor'easter moved the finale to Tropicana Field.
 Sound as the college video: a tick per ballpark, a chime as each month's chip completes, a chord.
 
     python experiments/season/build.py --team 111
@@ -46,7 +45,7 @@ CARD_IN = DRIVE_END + K.PULL_OUT - 0.4
 CLIP = (-130.0, 20.0, -60.0, 52.0)               # the lower 48 and southern Canada
 TEAM = 111                             # MLB team id (Red Sox)
 FLIGHT_STOPS, HOP_STOPS = 150, 70      # pseudo-stops: long flights ~1 s on screen, island hops less
-BLUE = (0xF9, 0xC6, 0xC6)              # a ballpark once reached: the lightest pass colour
+BLUE = (0xF9, 0xC6, 0xC6)              # a ballpark once reached: a pale dot
 # Camera (Max, 2026-10-14: the follow-cam was too zoomed in at the start, the
 # national view too far out later, no metro close-ups): a list of shots, each a
 # still frame on what the car covers in it, with short glides between them.
@@ -67,10 +66,11 @@ CALLOUT_S = 1.8
 
 GROUPS = ["Apr", "May", "Jun", "Jul", "Aug", "Sep"]   # chips by month (March's opener counts in April)
 CHIP = {g: g.upper() for g in GROUPS}
-# Pass bands and their colours (dark -> light = driven more often); validated --ordinal on #212630.
+# Pass bands and their colours: darker = driven more often (Max, 2026-10-15); validated --ordinal on #212630
+# (darkest step 2.45:1), and lines get thicker with passes so the heavy roads stay readable.
 PASS_EDGES = [1, 2, 3, 5, 10]                          # band k = passes >= PASS_EDGES[k]
 PASS_LABELS = ["1x", "2x", "3-4x", "5-9x", "10x+"]
-PASS_RGB = [(0xB0, 0x34, 0x34), (0xCF, 0x40, 0x40), (0xE6, 0x5C, 0x5C), (0xF0, 0x8C, 0x8C), (0xF9, 0xC6, 0xC6)]
+PASS_RGB = [(0xF9, 0xC6, 0xC6), (0xF0, 0x8C, 0x8C), (0xE6, 0x5C, 0x5C), (0xCF, 0x40, 0x40), (0xB0, 0x34, 0x34)]
 PASS_W = [1.6, 2.2, 2.8, 3.6, 4.6]                     # line width (x SS)
 MONTH = {3: "Apr", 4: "Apr", 5: "May", 6: "Jun", 7: "Jul", 8: "Aug", 9: "Sep", 10: "Sep"}
 
@@ -569,7 +569,7 @@ def render(i: int) -> bytes:
     n_vis = int(visited.sum())
     n_all = len(tour["stops"])
     card_a = K.smoothstep((s - CARD_IN) / 0.8)
-    K.header(d, "Every Red Sox game, by car", "One fan, the 2026 season, home and away")
+    K.header(d, "Every Red Sox game, by car", "The 2026 season, home and away")
     if card_a < 1:
         j_last = int(np.flatnonzero(visited).max()) if n_vis else 0
         stp_l = tour["stops"][j_last]
@@ -616,7 +616,7 @@ def render(i: int) -> bytes:
 
     hook_a = 1 - K.smoothstep((s - (K.HOOK - 0.3)) / 0.5)
     K.hook(im, [f"{tour['miles']:,.0f} miles.", "Every game."],
-           "One Red Sox fan follows the 2026 season by car", hook_a, center_y=K.TEXT_FLOOR - 230)
+           "Every 2026 game, home and away, by car", hook_a, center_y=K.TEXT_FLOOR - 230)
     K.end_card(im, *G["end"], card_a)
     return im.convert("RGB").tobytes()
 
