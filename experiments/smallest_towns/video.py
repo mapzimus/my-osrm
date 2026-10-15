@@ -50,7 +50,7 @@ NOTES = {"Gosnold": "Cuttyhunk Island: 1 h by boat from New Bedford",
          "Manele": "Lanai: no incorporated towns in Hawaii, so its smallest Census place",
          "Monowi": "Nebraska's smallest (Gross also has 2)",
          "Lotsee": "Oklahoma's smallest (Cooperton also has 4)"}
-FLIGHT_STOPS, HOP_STOPS = 150, 70      # pseudo-stops: long flights ~1 s on screen, island hops less
+FLIGHT_STOPS, HOP_STOPS = 2, 1        # pseudo-stops: ~2 s per flight here (walmart/s 150 was for 4,000+ stops; with 50 it gave 12 s)
 BLUE = (255, 176, 59)                  # a shop once reached: the house amber (kept the name from walmart/)
 # Camera (Max, 2026-10-14: the follow-cam was too zoomed in at the start, the
 # national view too far out later, no metro close-ups): a list of shots, each a
