@@ -27,6 +27,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 CACHE = HERE / "cache"
 OSRM = "http://127.0.0.1:5002"
+# Venues the API gives no coordinates (OSM, checked 2026-10-15): Mexico City Series ballpark.
+VENUE_FIX = {"Estadio Alfredo Harp Helu": {"latitude": 19.4036757, "longitude": -99.0852437}}
 
 
 def get(url: str):
@@ -64,7 +66,7 @@ def stays(team_id: int) -> tuple[str, list[dict]]:
     for g in games:
         v = g["venue"]
         loc = v.get("location", {})
-        c = loc.get("defaultCoordinates", {})
+        c = loc.get("defaultCoordinates", {}) or VENUE_FIX.get(v["name"], {})
         is_home = g["teams"]["home"]["team"]["id"] == team_id
         us, them = (g["teams"]["home"], g["teams"]["away"]) if is_home else (g["teams"]["away"], g["teams"]["home"])
         opp = them["team"]

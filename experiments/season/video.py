@@ -1,8 +1,10 @@
-"""Optimal Drives: driving to every Red Sox game of the 2026 season, home and away (Max,
+"""Optimal Drives: driving to every game of one MLB team's 2026 season, home and away (Max,
 2026-10-15: "the perspective should be a fan following the team ... we all know they fly").
 
 Roads are coloured by how many times the season drives them (build.py "pass_": 1x, 2x, 3-4x,
-5-9x, 10x+), a red ordinal ramp, darker = more (dataviz: one hue, monotone, dark end 2.45:1). Each stop shows the series with W/L scores. The nor'easter moved the finale to Tropicana Field.
+5-9x, 10x+), an ordinal ramp in the team's colour, darker = more (dataviz-validated, TEAMS). Each stop
+shows the series with W/L scores; TEAMS adds a team's one special note (Red Sox: the nor'easter finale;
+Padres: the Mexico City Series).
 Sound as the college video: a tick per ballpark, a chime as each month's chip completes, a chord.
 
     python experiments/season/build.py --team 111
@@ -43,7 +45,21 @@ DRIVE_START = K.HOOK + K.DIVE
 DRIVE_END = SECONDS - K.END_CARD - K.PULL_OUT - 0.5
 CARD_IN = DRIVE_END + K.PULL_OUT - 0.4
 CLIP = (-130.0, 20.0, -60.0, 52.0)               # the lower 48 and southern Canada
-TEAM = 111                             # MLB team id (Red Sox)
+TEAM = 111                             # default MLB team id; --team overrides
+# Per team: short name, ramp (1x .. 10x+, darker = more; dataviz --ordinal on the land colour #212630),
+# and its one special stop: (date, venue) -> callout text, plus the end-card footer note.
+TEAMS = {
+    111: dict(short="Red Sox", slug="redsox",
+              ramp=[(0xF9, 0xC6, 0xC6), (0xF0, 0x8C, 0x8C), (0xE6, 0x5C, 0x5C), (0xCF, 0x40, 0x40), (0xB0, 0x34, 0x34)],
+              special=("2026-09-27", "Tropicana Field", "Nor'easter: the finale moved to Tampa"),
+              note="Nor'easter: the Sept. 27 finale moved to Tropicana Field"),
+    135: dict(short="Padres", slug="padres",             # dark end 3.27:1
+              ramp=[(0xFD, 0xE8, 0xB0), (0xF5, 0xCC, 0x5A), (0xE0, 0xAA, 0x25), (0xBD, 0x8A, 0x18), (0x9A, 0x6C, 0x14)],
+              special=("2026-04-25", "Estadio Alfredo Harp Helu", "Mexico City Series: Padres at D-backs"),
+              note="Apr. 25-26: the Mexico City Series, D-backs vs. Padres"),
+}
+CFG = TEAMS[TEAM]
+DISPLAY = {"Estadio Alfredo Harp Helu": "Estadio Alfredo Harp Helú"}     # the API drops the accent
 FLIGHT_STOPS, HOP_STOPS = 150, 70      # pseudo-stops: long flights ~1 s on screen, island hops less
 BLUE = (0xF9, 0xC6, 0xC6)              # a ballpark once reached: a pale dot
 # Camera (Max, 2026-10-14: the follow-cam was too zoomed in at the start, the
@@ -59,7 +75,7 @@ METROS = {}
 DIVE_WEIGHT = 14
 DIVE_STOPS = 500                       # pseudo-stops for the dive
 # Highlights: (stop index) -> callout; hold=True pauses the clock and zooms in.
-HIGHLIGHTS = []                        # built from the data in highlights(): the nor'easter
+HIGHLIGHTS = []                        # built from the data in highlights(): TEAMS "special"
 HOLD_S = 1.6
 HOLD_KM = 25                           # half-width of a highlight's zoom
 CALLOUT_S = 1.8
@@ -70,7 +86,7 @@ CHIP = {g: g.upper() for g in GROUPS}
 # (darkest step 2.45:1), and lines get thicker with passes so the heavy roads stay readable.
 PASS_EDGES = [1, 2, 3, 5, 10]                          # band k = passes >= PASS_EDGES[k]
 PASS_LABELS = ["1x", "2x", "3-4x", "5-9x", "10x+"]
-PASS_RGB = [(0xF9, 0xC6, 0xC6), (0xF0, 0x8C, 0x8C), (0xE6, 0x5C, 0x5C), (0xCF, 0x40, 0x40), (0xB0, 0x34, 0x34)]
+PASS_RGB = list(CFG["ramp"])           # set from TEAMS (main() rebinds for --team)
 PASS_W = [1.6, 2.2, 2.8, 3.6, 4.6]                     # line width (x SS)
 MONTH = {3: "Apr", 4: "Apr", 5: "May", 6: "Jun", 7: "Jul", 8: "Aug", 9: "Sep", 10: "Sep"}
 
@@ -104,7 +120,7 @@ def short_date(iso: str | None) -> str:
 
 
 def series_line(stp: dict) -> str:
-    """'W 5-3 · L 2-7' (Red Sox score first)."""
+    """'W 5-3 · L 2-7' (the team's score first)."""
     return "  ·  ".join(("W " if w else "L ") + f"{a}-{b}" for a, b, w in stp.get("results", []))
 
 
@@ -157,12 +173,12 @@ def end_rows(tour: dict) -> tuple[list[tuple[str, str]], list[str]]:
     drive_h = tour["hours"]
     w, l = st[-1]["record"]
     parks = len({x["name"] for x in st})
-    rows = [(f"{tour['miles']:,.0f} miles", "Fenway to every game and home"),
+    rows = [(f"{tour['miles']:,.0f} miles", f"{st[0]['name']} to every game and home"),
             (f"{drive_h:.0f} hours", "behind the wheel"),
             (f"{parks} ballparks", f"{len(st) - 1} trips"),
-            (f"{w}-{l}", "the 2026 Red Sox")]
+            (f"{w}-{l}", f"the 2026 {CFG['short']}")]
     footer = ["Schedule and scores: MLB Stats API. Routing: OSRM, no traffic",
-              "Nor'easter: the Sept. 27 finale moved to Tropicana Field"]
+              CFG["note"]]
     return rows, footer
 
 
@@ -200,8 +216,9 @@ def highlights(st: list[dict]) -> list[tuple[int, str, bool]]:
     """(stop index, callout, hold) for the famous stores and the four extremes."""
     out = []
     for j, x in enumerate(st):
-        if x.get("date") == "2026-09-27" and x["name"] == "Tropicana Field":
-            out.append((j, "Nor'easter: the finale moved to Tampa", False))
+        date, venue, text = CFG["special"]
+        if x.get("date") == date and x["name"] == venue:
+            out.append((j, text, False))
     return out
 
 
@@ -376,6 +393,12 @@ G: dict = {}
 
 
 def init(tour: dict, platform: str) -> None:
+    # The team comes from the tour itself: Pool workers re-import this module (Windows spawn), so a
+    # --team set in main() alone would leave them on the default team's colours and text.
+    global CFG, BLUE
+    CFG = next(c for c in TEAMS.values() if c["short"] in tour["team"])
+    PASS_RGB[:] = CFG["ramp"]
+    BLUE = CFG["ramp"][0]
     K.use(platform)
     G["tour"] = tour
     G["base"] = basemap()
@@ -569,13 +592,13 @@ def render(i: int) -> bytes:
     n_vis = int(visited.sum())
     n_all = len(tour["stops"])
     card_a = K.smoothstep((s - CARD_IN) / 0.8)
-    K.header(d, "Every Red Sox game, by car", "The 2026 season, home and away")
+    K.header(d, f"Every {CFG['short']} game, by car", "The 2026 season, home and away")
     if card_a < 1:
         j_last = int(np.flatnonzero(visited).max()) if n_vis else 0
         stp_l = tour["stops"][j_last]
         w, l = stp_l["record"]
         when = short_date(stp_l.get("date")) or ("Mar 26" if j_last == 0 else "Sep 27")
-        K.stats(d, [(when, "2026", True), (f"{w}-{l}", "Red Sox record", False),
+        K.stats(d, [(when, "2026", True), (f"{w}-{l}", f"{CFG['short']} record", False),
                     (f"{P['miles'][i]:,.0f}", "miles driven", False)])
         done = {g: 0 for g in GROUPS}
         for j in np.flatnonzero(visited):
@@ -605,13 +628,15 @@ def render(i: int) -> bytes:
             j = int(np.flatnonzero(visited).max())
             stp = tour["stops"][j]
             if j == 0:
-                K.now_label(d, "Start", "Fenway Park", "Opening Day is in Cincinnati")
+                K.now_label(d, "Start", stp["name"], "Opening Day is in " + tour["stops"][1]["town"].split(",")[0]
+                            if not tour["stops"][1]["name"] == stp["name"] else "Opening Day at home")
             elif j == n_all - 1:
-                K.now_label(d, "Home", "Fenway Park", f"season over, {stp['record'][0]}-{stp['record'][1]}")
+                K.now_label(d, "Home", stp["name"], f"season over, {stp['record'][0]}-{stp['record'][1]}")
             else:
-                where = ("Home game, played in Tampa" if stp["home"] and stp["name"] != "Fenway Park"
+                home_park = tour["stops"][0]["name"]
+                where = (f"Home game, played in {stp['town'].split(',')[0]}" if stp["home"] and stp["name"] != home_park
                          else "Home" if stp["home"] else "Away")
-                K.now_label(d, f"{where}  ·  {short_date(stp['date'])}  ·  vs {stp['opp']}", stp["name"],
+                K.now_label(d, f"{where}  ·  {short_date(stp['date'])}  ·  vs {stp['opp']}", DISPLAY.get(stp["name"], stp["name"]),
                             series_line(stp))
 
     hook_a = 1 - K.smoothstep((s - (K.HOOK - 0.3)) / 0.5)
@@ -636,13 +661,17 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=2)
     # On by default: the college video's sound for every video (Max, 2026-10-15).
     ap.add_argument("--silent", dest="sound", action="store_false", help="no ticks or chimes")
-    ap.add_argument("--tour", default=str(CACHE / str(TEAM) / "tour.json"))
+    ap.add_argument("--team", type=int, default=TEAM)
     # Low memory (2026-10-14, 1.4 GB free): render in parts, each short enough to
     # finish in one sitting, then --join them (stream copy, no re-encode).
     ap.add_argument("--part", help="k/n: render only the k-th of n equal parts (1-based)")
     ap.add_argument("--join", type=int, help="join n rendered parts into the final file")
     args = ap.parse_args()
-    tour = json.load(open(args.tour))
+    global CFG, PASS_RGB, BLUE
+    CFG = TEAMS[args.team]
+    PASS_RGB[:] = CFG["ramp"]
+    BLUE = CFG["ramp"][0]
+    tour = json.load(open(CACHE / str(args.team) / "tour.json", encoding="utf-8"))
     OUT.mkdir(exist_ok=True)
     if args.stills:
         init(tour, args.platform)
@@ -650,7 +679,7 @@ def main() -> None:
             i = min(int(sec * FPS), SECONDS * FPS - 1)
             Image.frombytes("RGB", (W, H), render(i)).save(OUT / f"{args.platform}_{sec:04.1f}.png")
         return
-    slug = f"redsox_{args.platform}"
+    slug = f"{CFG['slug']}_{args.platform}"
     silent, wav = OUT / f"{slug}_silent.mp4", OUT / f"{slug}_ticks.wav"
     n, t0 = SECONDS * FPS, time.time()
     if args.join:
