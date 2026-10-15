@@ -57,14 +57,14 @@ def chunks(n: int, size: int = ROUTE_CHUNK) -> list[tuple[int, int]]:
         a = b
 
 
-def check_tour(tour: dict, n: int) -> None:
+def check_tour(tour: dict, n: int, max_leg_h: float = MAX_DRIVE_LEG_H) -> None:
     names = [s["name"] + str(s.get("lon", "")) + str(s.get("lat", "")) for s in tour["stops"]]
     assert len(names) == n and len(set(names)) == n, "every store exactly once"
     ts = [s["t"] for s in tour["stops"]]
     assert all(b >= a for a, b in zip(ts, ts[1:])), "arrival times increase"
     assert abs(tour["t"][-1] / 3600 - tour["hours"]) < 1e-6, "clock ends at the total"
     # Alaska is reached by road through Canada (~40 h from Washington): exempt.
-    assert all(leg["h"] <= MAX_DRIVE_LEG_H or leg.get("alaska") for leg in tour["legs"]), "no driving leg over 12 h"
+    assert all(leg["h"] <= max_leg_h or leg.get("alaska") for leg in tour["legs"]), f"no driving leg over {max_leg_h} h"
 
 
 PR_BOX = (-68.0, 17.5, -65.0, 18.7)
@@ -137,6 +137,8 @@ def main() -> None:
     ap.add_argument("--sample", type=int)
     ap.add_argument("--resolve", action="store_true")
     ap.add_argument("--cache", help="folder with stores.json (name, lon, lat); outputs go there too")
+    ap.add_argument("--max-leg-h", type=float, default=MAX_DRIVE_LEG_H,
+                    help="longest allowed driving leg (NBA arenas: far apart by design)")
     args = ap.parse_args()
 
     cache = Path(args.cache).resolve() if args.cache else HERE / "cache"
@@ -263,7 +265,7 @@ def main() -> None:
     tour = dict(stops=stops, coords=coords, t=t, dist=dists, mode=mode, flights=flights, ferries=ferries,
                 legs=legs_info, hours=hours, fly_hours=fly_h, miles=metres / 1609.344,
                 flown_miles=sum(F.km(f["a"], f["b"]) for f in flights) / 1.609344)
-    check_tour(tour, n)
+    check_tour(tour, n, args.max_leg_h)
     json.dump(tour, open(cache / "tour.json", "w"))
     print(f"{n} stores, {hours:.1f} h ({hours - fly_h:.1f} h driving, {len(flights)} flights {fly_h:.1f} h), "
           f"{metres / 1609.344:,.0f} mi, {len(ferries)} ferries, {stops[0]['name']} -> {stops[-1]['name']}")
