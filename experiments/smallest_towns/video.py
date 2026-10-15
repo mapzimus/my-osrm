@@ -1,6 +1,6 @@
 """Optimal Drives: the smallest town in every state (ideas #297 + #296), 52 towns (two ties) in all
 50 states, one trip. Max (2026-10-15): a combined population at the end, no 0s. Adapted from
-salem/video.py: a bell per town on a pentatonic scale, a fuller chime every 10th, a chord at the end.
+salem/video.py; sound as the college video: a tick per town, a chime per finished region, a chord.
 
 Run inventory.py, then experiments/walmart/build.py --cache experiments/smallest_towns/cache --max-leg-h 40,
 then boats.py (Cuttyhunk boat, the Lanai flight).
@@ -615,40 +615,13 @@ def render(i: int) -> bytes:
     return im.convert("RGB").tobytes()
 
 
-def sound(tour: dict, path: Path, rate: int = 48000) -> None:
-    """A soft bell per town, climbing a major-pentatonic scale over two octaves and round
-    again, so the run of stops plays as a melody; every 10th a fuller chime; a chord at the finish."""
-    import wave
+def sound(tour: dict, path: Path) -> None:
+    """The college video's sound (Max, 2026-10-15): a tick per town, a chime when a region's chip
+    completes, a chord at the finish (reel_kit.soundtrack)."""
     vs = plan(tour)["visit_s"]
-    n = int(SECONDS * rate)
-    out = np.zeros(n)
-
-    def add(t0, freqs, dur, amp, decay):
-        i = int(t0 * rate)
-        m = min(int(dur * rate), n - i)
-        if m <= 0:
-            return
-        tt = np.arange(m) / rate
-        env = np.exp(-tt / decay) * np.minimum(1, tt / 0.004)
-        out[i:i + m] += amp * env * sum(a * np.sin(2 * np.pi * f * tt) for f, a in freqs)
-
-    steps = [0, 2, 4, 7, 9]                              # major pentatonic
-    last = -1.0
-    for j, t in enumerate(vs[:-1]):
-        note = 12 * ((j // 5) % 2) + steps[j % 5]        # two octaves, then round again
-        f0 = 523.25 * 2 ** (note / 12)                    # from C5
-        quiet = 0.55 if t - last < 0.09 else 1.0          # stops a frame apart: softer, not a buzz
-        last = t
-        add(t, [(f0, 1.0), (2 * f0, 0.35), (3 * f0, 0.12)], 0.6, 0.20 * quiet, 0.16)   # bell
-        if (j + 1) % 10 == 0:
-            add(t, [(f0, 1.0), (f0 * 1.5, 0.6), (f0 * 2, 0.5)], 1.4, 0.24, 0.45)        # every 10th
-    add(float(vs[-1]), [(261.63, 1), (329.63, 1), (392.0, 1), (523.25, 1)], 3.5, 0.5, 1.2)
-    pcm = (out / (np.abs(out).max() or 1) * 0.8 * 32767).astype(np.int16)
-    with wave.open(str(path), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(rate)
-        w.writeframes(pcm.tobytes())
+    g = [group(s) for s in tour["stops"]]
+    chimes = [max(vs[j] for j in range(len(g)) if g[j] == k) for k in GROUPS if k in g]
+    K.soundtrack(path, SECONDS, list(vs[:-1]), chimes, float(vs[-1]))
 
 
 def main() -> None:
