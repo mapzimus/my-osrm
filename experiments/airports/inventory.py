@@ -1,8 +1,9 @@
-"""Every major airport in the lower 48 (idea #79: 1 hour from every major airport).
+"""Every airport with passenger service in the lower 48 (idea #79).
 
-"Major" = the FAA's large and medium hubs (CY2025 commercial service
-enplanements, cache/faa_cy2025.xlsx): the airports with nonstops to most of the
-country. Coordinates from OurAirports (cache/ourairports.csv), matched on the
+Max (2026-10-15): every airport with passenger service, not just major hubs. That is
+the FAA's commercial service list (CY2025 enplanements, cache/faa_cy2025.xlsx):
+public airports with scheduled passenger service and 2,500+ boardings a year,
+from Atlanta down to Essential Air Service fields like Wolf Point, MT (412). Coordinates from OurAirports (cache/ourairports.csv), matched on the
 FAA location id (IATA code, or local code when they differ).
 
     python experiments/airports/inventory.py
@@ -21,7 +22,7 @@ import openpyxl
 HERE = Path(__file__).resolve().parent
 CACHE = HERE / "cache"
 NOT_L48 = {"AK", "HI", "PR", "GU", "VI", "AS", "MP"}
-HUBS = {"L": "large", "M": "medium"}
+HUBS = {"L": "large", "M": "medium", "S": "small", "N": "nonhub", "None": "commercial"}
 
 
 def main() -> None:
@@ -29,7 +30,7 @@ def main() -> None:
     rows = list(ws.iter_rows(values_only=True))
     head = rows[0]
     faa = [dict(zip(head, r)) for r in rows[1:] if r[0] is not None]
-    faa = [r for r in faa if r["Hub"] in HUBS and r["ST"] not in NOT_L48]
+    faa = [r for r in faa if r["ST"] not in NOT_L48]
 
     by_code = {}
     with open(CACHE / "ourairports.csv", encoding="utf-8") as fh:
@@ -46,14 +47,14 @@ def main() -> None:
             missing.append(r["Locid"])
             continue
         out.append(dict(chain="airport", name=r["Airport Name"], lon=float(a["longitude_deg"]),
-                        lat=float(a["latitude_deg"]), state=r["ST"], code=r["Locid"], hub=HUBS[r["Hub"]],
+                        lat=float(a["latitude_deg"]), state=r["ST"], code=r["Locid"], hub=HUBS[str(r["Hub"])],
                         enplanements=int(r["CY 25 Enplanements"])))
     with open(CACHE / "stores.csv", "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, list(out[0]))
         w.writeheader()
         w.writerows(out)
     n = {h: sum(1 for o in out if o["hub"] == h) for h in HUBS.values()}
-    print(f"{len(out)} major airports in the lower 48 ({n}); not matched: {missing}")
+    print(f"{len(out)} passenger airports in the lower 48 ({n}); not matched: {missing}")
 
 
 if __name__ == "__main__":

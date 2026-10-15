@@ -1,11 +1,11 @@
-"""Every major airport: drive time to the nearest one, the 65 s social cut (TikTok and Reels).
+"""Every passenger airport: drive time to the nearest one, the 65 s social cut (TikTok and Reels).
 
 Idea #79. Built from experiments/hospitals/reel.py (same engine, camera and stats).
-Every major airport "leaves" at once; each road lights up when the nearest one reaches it,
+Every airport with passenger service "leaves" at once; each road lights up when the nearest one reaches it,
 in one blue ramp by drive time (dataviz ordinal ramp, validated on the dark map:
 the farthest roads are the warmest). The
 camera tours regions as the country fills, then ends way in on the road farthest
-from any major airport. House layout from experiments/reel_kit.py (Optimal Drives).
+from any passenger airport. House layout from experiments/reel_kit.py (Optimal Drives).
 
     python experiments/airports/reel.py --platform tiktok --stills 1,6,20,34,50,62
     python experiments/airports/reel.py --platform tiktok
@@ -347,7 +347,7 @@ class Reel:
         return self.view_of(SHOTS[-1][1]), SHOTS[-1][1]
 
     def dots(self, img: np.ndarray, view) -> np.ndarray:
-        """Every major airport as a small white dot: the single series, named in the title."""
+        """Every passenger airport as a small white dot: the single series, named in the title."""
         x, y, k = view
         px = (self.d["hx"] - x) / k + W / 2
         py = (y - self.d["hy"]) / k + K.MAP_CENTER_Y
@@ -411,13 +411,13 @@ class Reel:
         sec = self.secs[i]
         d = ImageDraw.Draw(im)
         card_a = K.smoothstep((sec - CARD_IN) / 0.8)
-        K.header(d, "Every major airport", "Each road is colored by the drive to the nearest one")
+        K.header(d, "Every passenger airport", "Each road is colored by the drive to the nearest one")
         drive_s = self.drive[i] if sec >= RACE_START else 0.0
         p = self.d["people"]
         reached = p["cum"][int(np.searchsorted(p["t"], drive_s, side="right"))] / p["total"]
         if card_a < 1:
             K.stats(d, [(hm(drive_s), "drive time", True), (pct_down(reached), "of people reached", False),
-                        (f"{len(self.d['hx']):,}", "major airports", False)])
+                        (f"{len(self.d['hx']):,}", "passenger airports", False)])
             self.people_bar(d, drive_s)
         K.watermark(d, 1 - card_a)
 
@@ -433,7 +433,7 @@ class Reel:
             p30, longest, n_h = self.d["region"][held]
             share = f"{p30:.0f}%" if p30 >= 1 else "<1%"
             label(KICKERS.get(held, "The " + held), f"{share} live an hour+ away · longest drive {hm_long(longest)}",
-                  f"{n_h:,} major airports in view" if n_h != 1 else "1 major airport in view", min(1.0, (sec - a) / 0.4, (b - sec) / 0.4))
+                  f"{n_h:,} passenger airports in view" if n_h != 1 else "1 passenger airport in view", min(1.0, (sec - a) / 0.4, (b - sec) / 0.4))
         if self.upto[i] >= len(self.d["ts"]) and sec <= PULL + 0.3:      # the last road: a callout where it is
             j = self.d["last"]
             (vx, vy, vk), _ = self.camera(sec)
@@ -441,26 +441,26 @@ class Reel:
             y = (vy - self.d["my"][j]) / vk + K.MAP_CENTER_Y
             al = min(1.0, (sec - REACHED) / 0.2, (PULL + 0.3 - sec) / 0.3)
             over = Image.new("RGBA", im.size, (0, 0, 0, 0))
-            K.callout(ImageDraw.Draw(over), x, y, f"Farthest from a major airport: {hm_long(self.d['ts'][-1])}", al)
+            K.callout(ImageDraw.Draw(over), x, y, f"Farthest from an airport: {hm_long(self.d['ts'][-1])}", al)
             im.alpha_composite(over)
         if held == "Last" and sec <= PULL:                         # the whole final hold, not just once reached
             label("The last road to reach", self.d["place"],
                   "private logging roads, gravel most of the way"
-                  if self.d["place"] == "North Maine Woods" else "the longest drive to a major airport",
+                  if self.d["place"] == "North Maine Woods" else "the longest drive to a passenger airport",
                   min(1.0, (sec - SHOTS[-1][0]) / 0.4, (PULL - sec) / 0.4))
         if held == "final":                                       # the finished map, held
             a = PULL + K.PULL_OUT
-            label("Every road, every major airport", f"{millions(self.d['far30'])} people live an hour+ from one",
+            label("Every road, every passenger airport", f"{millions(self.d['far30'])} people live an hour+ from one",
                   "How far is yours?", min(1.0, (sec - a) / 0.4, (CARD_IN - sec) / 0.4))
         hook_a = 1 - K.smoothstep((sec - (K.HOOK - 0.3)) / 0.5)
         if hook_a > 0:
-            K.hook(im, [millions(self.d["far30"]), "Americans"], "live over an hour from a major airport", hook_a)
+            K.hook(im, [millions(self.d["far30"]), "Americans"], "live over an hour from any airport with passenger flights", hook_a)
         self.end_card(im, card_a)
 
     def end_card(self, im: Image.Image, alpha: float) -> int:
-        """KPI rows, then the five states with the largest share of people an hour+ from a major airport: ranked
+        """KPI rows, then the five states with the largest share of people far from a passenger airport: ranked
         stacked bars (one segment per far band, 2px gaps, the map's colours), total at the tip, no grid."""
-        rows = [(f"{len(self.d['hx']):,}", "major airports (FAA large and medium hubs)"),
+        rows = [(f"{len(self.d['hx']):,}", "airports with passenger flights"),
                 (millions(self.d["far30"]), "people an hour+ from one"),
                 (millions(self.d["far60"]), "people 3 hours+ from one"),
                 (hm_long(self.d["ts"][-1]), "longest drive: " + ("north of Opheim, Montana" if "Opheim" in self.d["place"]
@@ -468,8 +468,8 @@ class Reel:
                  + (" logging roads" if self.d["place"] == "North Maine Woods" else ""))]
         top = K.TOP + 160
         bars_top = top + 40 + len(rows) * 100 + 20
-        footer = ["Drive time from the nearest major airport, no traffic",
-                  "Airports: FAA 2025   People: Census 2020   Roads: OSM   Routing: OSRM"]
+        footer = ["Drive time from the nearest passenger airport, no traffic",
+                  "Airports: FAA 2025 commercial service   People: Census 2020   OSM   OSRM"]
         bottom = bars_top + 88 + 5 * 44 + 30 + 36 * (len(footer) + 1) + 30 + 50
         if alpha <= 0:
             return bottom
@@ -480,7 +480,7 @@ class Reel:
             y = top + 40 + r * 100
             d.text((96, y), big, font=K.F("card"), fill=K.INK)
             d.text((W - 96, y + 34), label, font=K.F("small"), fill=K.MUTED, anchor="rm")
-        d.text((96, bars_top), "Share of people 3 hours+ from a major airport", font=K.F("label"), fill=K.INK)
+        d.text((96, bars_top), "Share of people 3 hours+ from a passenger airport", font=K.F("label"), fill=K.INK)
         far = range(len(RAMP) - 1, len(RAMP))
         lx = 96
         for c in []:                                                       # legend row: the stacked parts
