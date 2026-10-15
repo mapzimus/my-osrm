@@ -63,12 +63,14 @@ DOT = (236, 239, 244)
 # Max (2026-10-15, v2): no zooms on coastal cities that are 100% one shore; every stop is where
 # basins meet. Denver comes last and late (the farthest road is next door).
 VIEWS = {"South Florida": (-81.0, 26.6, 330), "Georgia": (-83.8, 32.6, 600), "Appalachia": (-81.6, 37.6, 750),
-         "Ohio Valley": (-86.2, 39.6, 650), "Great Plains": (-98.5, 42.5, 1300), "Southwest": (-107.5, 33.8, 1000),
+         "Mid-South": (-88.5, 36.0, 700), "Great Plains": (-98.5, 42.5, 1300), "Southwest": (-107.5, 33.8, 1000),
          "Northern Rockies": (-110.5, 46.8, 1000), "US": None}
-SHOTS = [(RACE_START, "South Florida"), (7.0, "South Florida"), (8.8, "Georgia"), (11.8, "Georgia"),
-         (13.6, "Appalachia"), (17.0, "Appalachia"), (18.8, "Ohio Valley"), (22.0, "Ohio Valley"),
-         (24.2, "Great Plains"), (28.0, "Great Plains"), (30.2, "Southwest"), (34.0, "Southwest"),
-         (36.2, "Northern Rockies"), (40.0, "Northern Rockies"), (42.0, "US"), (45.0, "US"), (47.5, "Last")]
+# Timed to when each divide fills on the video clock (80% of its roads lit, measured 2026-10-15):
+# South Florida 7.3 s, Georgia/Appalachia 21.5 s, Mid-South 27.7 s, Plains/Southwest/Rockies 38-41 s.
+SHOTS = [(RACE_START, "South Florida"), (7.6, "South Florida"), (9.6, "US"), (16.5, "US"), (18.3, "Georgia"),
+         (21.8, "Georgia"), (23.3, "Appalachia"), (26.3, "Appalachia"), (27.8, "Mid-South"), (31.0, "Mid-South"),
+         (33.0, "US"), (35.5, "US"), (37.2, "Great Plains"), (39.8, "Great Plains"), (41.2, "Southwest"),
+         (43.6, "Southwest"), (45.0, "Northern Rockies"), (46.8, "Northern Rockies"), (48.2, "Last")]
 KICKERS = {"South Florida": "South Florida", "Georgia": "Georgia", "Appalachia": "Appalachia"}
 LAST_KM = 320                            # frame width on the farthest road (wide enough for Denver too)
 DETOUR = 3.0                             # road_ok(): drive time / straight-line estimate above this is a map error
