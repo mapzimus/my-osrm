@@ -28,7 +28,7 @@ import urllib.request
 from pathlib import Path
 
 import shapefile
-from shapely.geometry import shape
+from shapely.geometry import Point, shape
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -107,6 +107,20 @@ def nominatim(street: str, town: str) -> list[float] | None:
     return [float(m[0]["lon"]), float(m[0]["lat"])] if m else None
 
 
+def fill_towns(stores: list[dict], ma) -> None:
+    """A shop OSM gives no town gets the nearest Massachusetts place (the video's label;
+    the nearest place of any state put Costello's, Haverhill, in Plaistow, NH)."""
+    import sqlite3
+    db = sqlite3.connect(ROOT / "data" / "app" / "places.sqlite")
+    towns = [(n, x, y) for n, x, y in db.execute(
+        "select name, lon, lat from places where country = 'US' and kind in ('city', 'town', 'village') "
+        "and lon between -73.6 and -69.8 and lat between 41.2 and 42.95")
+        if ma.buffer(-0.01).contains(Point(x, y))]
+    for s in stores:
+        if not s["town"]:
+            s["town"] = min(towns, key=lambda t: km((s["lon"], s["lat"]), (t[1], t[2])))[0]
+
+
 def closed(name: str, lon: float, lat: float) -> bool:
     return any(key(name) == key(n) and km((lon, lat), (x, y)) < 15 for n, x, y in CLOSED)
 
@@ -149,6 +163,7 @@ def main() -> None:
         if not any(same(s, o) for o in stores):
             stores.append(s)
     json.dump(gcache, open(gpath, "w"), indent=0)
+    fill_towns(stores, ma)
     json.dump(stores, open(CACHE / "stores.json", "w", encoding="utf-8"), indent=0)
     by = {}
     for s in stores:

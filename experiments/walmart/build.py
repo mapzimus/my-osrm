@@ -9,6 +9,7 @@ Drive time only: no shopping, sleep or traffic.
     python experiments/walmart/build.py               # cached steps are skipped
     python experiments/walmart/build.py --sample 50   # trial: 50 stores near Atlanta, in cache/sample50/
     python experiments/walmart/build.py --resolve     # re-run the solver
+    python experiments/walmart/build.py --cache experiments/roast_beef/cache   # any stores.json
 
 Writes cache/tour.json (or cache/sampleN/tour.json) for video.py.
 """
@@ -95,11 +96,12 @@ def label(stops: list[dict]) -> None:
         s["state"] = names[tree.nearest(Point(s["lon"], s["lat"]))]
         k = math.cos(math.radians(s["lat"]))
         d2 = ((tl[:, 0] - s["lon"]) * k) ** 2 + (tl[:, 1] - s["lat"]) ** 2
-        s["town"] = towns[int(d2.argmin())][0]
+        if not s.get("town"):                                  # a listed town (roast_beef/) beats the nearest place
+            s["town"] = towns[int(d2.argmin())][0]
 
 
 def region(s: dict) -> str:
-    if s["region"] == "puerto-rico":
+    if s.get("region") == "puerto-rico":
         return "PR"
     return "HI" if -161 < s["lon"] < -154 and 18 < s["lat"] < 23 else "US"
 
@@ -134,9 +136,10 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--sample", type=int)
     ap.add_argument("--resolve", action="store_true")
+    ap.add_argument("--cache", help="folder with stores.json (name, lon, lat); outputs go there too")
     args = ap.parse_args()
 
-    cache = HERE / "cache"
+    cache = Path(args.cache).resolve() if args.cache else HERE / "cache"
     stores = json.load(open(cache / "stores.json", encoding="utf-8"))
     if args.sample:
         atl = (-84.39, 33.75)
