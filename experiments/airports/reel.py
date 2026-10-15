@@ -60,10 +60,10 @@ FADE_S = 0.5
 # Drive-time bands, 15 min apart (Max, 2026-10-15); a road takes the colour of the moment it's reached,
 # so the flood turns from blue to red as the clock runs. Semantic heat (dataviz: the one multi-hue ordered
 # exception, always with a legend), validated adjacent on black: CVD dE >= 12.9, normal-vision >= 17.0.
-BANDS = [30, 60, 120, 180]              # airports: drives run long, so wider bands; 1 h is still an edge
-BAND_LABELS = ["<30 min", "30–60", "1–2 h", "2–3 h", "3 h+"]
+BANDS = [15, 30, 45, 60]                # 412 passenger airports: 15-min bands fit (18/30/20/14/19% of road)
+BAND_LABELS = ["<15", "15–30", "30–45", "45–60", "1 h+"]
 RAMP = [(0x1C, 0x5C, 0xAB), (0x55, 0x98, 0xE7), (0xED, 0xA1, 0x00), (0xE6, 0x67, 0x67), (0xB0, 0x2A, 0x2A)]
-FAR = 2                                 # bands >= FAR are "1 hour+"
+FAR = 4                                 # bands >= FAR are "1 hour+"
 DOT = (236, 239, 244)
 
 VIEWS = {"Boston": (-71.08, 42.33, 90), "Northeast": (-74.5, 41.6, 700), "Appalachia": (-81.6, 37.6, 600),
@@ -109,12 +109,12 @@ def road_ok(lon: np.ndarray, lat: np.ndarray, arrival: np.ndarray) -> np.ndarray
     import shapefile
     import shapely
     from shapely.geometry import shape
-    # Home = inside the lower 48 by Census TIGER (full resolution), ~50 m of slack for piers and causeways.
+    # Home = inside the lower 48 by Census TIGER (full resolution), no slack: 50 m still let a Rio Grande road in Chihuahua through.
     # Natural Earth's coarse Canada outline let Saskatchewan roads through (airports, 2026-10-15), and
     # 300 m of slack still kept the Canadian end of the Opheim, MT border-crossing road (49.002 N).
     sf = shapefile.Reader(str(HERE.parent / "border_crossings" / "cache" / "states" / "tl_2024_us_state.shp"))
     us = shapely.union_all([shape(s.__geo_interface__) for s, r in zip(sf.shapes(), sf.records())
-                            if r["STUSPS"] not in ("AK", "HI", "PR", "GU", "VI", "AS", "MP")]).buffer(0.0005)
+                            if r["STUSPS"] not in ("AK", "HI", "PR", "GU", "VI", "AS", "MP")])
     shapely.prepare(us)
     lo64, la64 = lon.astype(np.float64), lat.astype(np.float64)
     near_edge = np.ones(len(lon), bool)                  # only test points near the outline: the rest are inside
@@ -175,7 +175,7 @@ def prepare() -> dict:
                   total=float(pop.sum()))
     b = band(pt)
     # states ranked by share of people an hour+ out: ([share per band FAR..], state)
-    # airports: nearly every far state is ~100% "1 h+", so rank by 3 h+ (the last band), one bar each
+    # rank by share 1 h+ (the last band), one bar each
     states = sorted((([float(pop[(st == s) & (b == len(RAMP) - 1)].sum() / pop[st == s].sum())], s)
                      for s in set(st)), key=lambda r: r[0][0], reverse=True)
 
@@ -191,7 +191,7 @@ def prepare() -> dict:
             region[name] = (100 * pop[m & (b >= FAR)].sum() / pop[m].sum(), float(pc["t"][r_in].max()), n_h)
     lon_l, lat_l = lonlat_of(mx[last], my[last])
     return dict(pc=pc, order=order, ts=ts, mx=mx, my=my, last=last, hx=hx, hy=hy, people=people,
-                far30=float(pop[b >= FAR].sum()), far60=float(pop[b == len(RAMP) - 1].sum()),
+                far30=float(pop[b >= FAR].sum()), far60=float(pop[pt > 2 * 3600].sum()),       # 1 h+, 2 h+
                 states=states, region=region, place=place_name(lon_l, lat_l),
                 t_fade=float(np.percentile(ts, 99.5)))
 
@@ -225,11 +225,13 @@ def place_name(lon: float, lat: float) -> str:
         with urllib.request.urlopen(req, timeout=60) as resp:
             a = json.load(resp).get("address", {})
         town = a.get("city") or a.get("town") or a.get("village") or a.get("hamlet") or a.get("county", "")
-        cache[key] = f"near {town}, {a.get('state', '')}".strip(", ")
+        town_only = a.get("city") or a.get("town") or a.get("village") or a.get("hamlet")
+        cache[key] = (f"near {town}, {a.get('state', '')}" if town_only           # no town nearby: just the county
+                      else f"{town}, {a.get('state', '')}").strip(", ")
         json.dump(cache, open(path, "w"), indent=0)
     if re.match(r"near T\d+ R\d+", cache[key]):          # Maine's unorganized townships: "T8 R16 WELS"
         return "North Maine Woods"
-    if cache[key] == "near Valley County, Montana" and lat > 48.95:     # MT-24 at the Port of Opheim (checked)
+    if cache[key] in ("near Valley County, Montana", "Valley County, Montana") and lat > 48.95:     # MT-24 at the Port of Opheim (checked)
         return "Opheim, Montana, at the Canadian border"
     return cache[key]
 
@@ -462,7 +464,7 @@ class Reel:
         stacked bars (one segment per far band, 2px gaps, the map's colours), total at the tip, no grid."""
         rows = [(f"{len(self.d['hx']):,}", "airports with passenger flights"),
                 (millions(self.d["far30"]), "people an hour+ from one"),
-                (millions(self.d["far60"]), "people 3 hours+ from one"),
+                (millions(self.d["far60"]), "people 2 hours+ from one"),
                 (hm_long(self.d["ts"][-1]), "longest drive: " + ("north of Opheim, Montana" if "Opheim" in self.d["place"]
                                                   else self.d["place"].removeprefix("near "))
                  + (" logging roads" if self.d["place"] == "North Maine Woods" else ""))]
@@ -480,7 +482,7 @@ class Reel:
             y = top + 40 + r * 100
             d.text((96, y), big, font=K.F("card"), fill=K.INK)
             d.text((W - 96, y + 34), label, font=K.F("small"), fill=K.MUTED, anchor="rm")
-        d.text((96, bars_top), "Share of people 3 hours+ from a passenger airport", font=K.F("label"), fill=K.INK)
+        d.text((96, bars_top), "Share of people an hour+ from a passenger airport", font=K.F("label"), fill=K.INK)
         far = range(len(RAMP) - 1, len(RAMP))
         lx = 96
         for c in []:                                                       # legend row: the stacked parts
@@ -555,7 +557,7 @@ def main() -> None:
     t0 = time.time()
     reel = Reel(args.platform)
     d = reel.d
-    print(f"ready in {time.time() - t0:.0f} s; 1 h+ {d['far30']:,.0f} people, 3 h+ {d['far60']:,.0f}; "
+    print(f"ready in {time.time() - t0:.0f} s; 1 h+ {d['far30']:,.0f} people, 2 h+ {d['far60']:,.0f}; "
           f"last road {hm_long(d['ts'][-1])} {d['place']}; regions {d['region']}; "
           f"states {[(s, [round(100 * v) for v in sh]) for sh, s in d['states'][:8]]}", flush=True)
     if args.stills:
