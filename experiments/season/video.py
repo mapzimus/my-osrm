@@ -1,8 +1,9 @@
 """Optimal Drives: driving to every game of one MLB team's 2026 season, home and away (Max,
 2026-10-15: "the perspective should be a fan following the team ... we all know they fly").
 
-Roads are coloured by how many times the season drives them (build.py "pass_": 1x, 2x, 3-4x,
-5-9x, 10x+), an ordinal ramp in the team's colour, darker = more (dataviz-validated, TEAMS). Each stop
+Roads are coloured by how many times the season drives them (build.py "pass_": 1x, 2x, 3x, 4x,
+5-7x, 8-11x, 12x+; Max 2026-10-16: more bins), an ordinal ramp in the team's colour, darker = more
+(Lab steps between the validated ends, TEAMS). The team's logo opens the video (thumbnail). Each stop
 shows the series with W/L scores; TEAMS adds a team's one special note (Red Sox: the nor'easter finale;
 Padres: the Mexico City Series).
 Sound as the college video: a tick per ballpark, a chime as each month's chip completes, a chord.
@@ -50,14 +51,16 @@ TEAM = 111                             # default MLB team id; --team overrides
 # and its one special stop: (date, venue) -> callout text, plus the end-card footer note.
 TEAMS = {
     111: dict(short="Red Sox", slug="redsox",
-              ramp=[(0xF9, 0xC6, 0xC6), (0xF0, 0x8C, 0x8C), (0xE6, 0x5C, 0x5C), (0xCF, 0x40, 0x40), (0xB0, 0x34, 0x34)],
+              ramp=["#F9C6C6", "#EFAEAB", "#E49692", "#D87F79", "#CC6761", "#BE4F4A", "#B03434"], logo="bos.png",
               special=("2026-09-27", "Tropicana Field", "Nor'easter: the finale moved to Tampa"),
               note="Nor'easter: the Sept. 27 finale moved to Tropicana Field"),
     135: dict(short="Padres", slug="padres",             # dark end 3.27:1
-              ramp=[(0xFD, 0xE8, 0xB0), (0xF5, 0xCC, 0x5A), (0xE0, 0xAA, 0x25), (0xBD, 0x8A, 0x18), (0x9A, 0x6C, 0x14)],
+              ramp=["#FDE8B0", "#EDD296", "#DDBC7C", "#CDA863", "#BC934A", "#AB7F31", "#9A6C14"], logo="sd.png",
               special=("2026-04-25", "Estadio Alfredo Harp Helu", "Mexico City Series: Padres at D-backs"),
               note="Apr. 25-26: the Mexico City Series, D-backs vs. Padres"),
 }
+for _c in TEAMS.values():                # ramps as hex (7 bands since 2026-10-16), drawn as RGB tuples
+    _c["ramp"] = [tuple(int(h[i:i + 2], 16) for i in (1, 3, 5)) for h in _c["ramp"]]
 CFG = TEAMS[TEAM]
 DISPLAY = {"Estadio Alfredo Harp Helu": "Estadio Alfredo Harp Helú"}     # the API drops the accent
 FLIGHT_STOPS, HOP_STOPS = 150, 70      # pseudo-stops: long flights ~1 s on screen, island hops less
@@ -84,10 +87,11 @@ GROUPS = ["Apr", "May", "Jun", "Jul", "Aug", "Sep"]   # chips by month (March's 
 CHIP = {g: g.upper() for g in GROUPS}
 # Pass bands and their colours: darker = driven more often (Max, 2026-10-15); validated --ordinal on #212630
 # (darkest step 2.45:1), and lines get thicker with passes so the heavy roads stay readable.
-PASS_EDGES = [1, 2, 3, 5, 10]                          # band k = passes >= PASS_EDGES[k]
-PASS_LABELS = ["1x", "2x", "3-4x", "5-9x", "10x+"]
+# Red Sox road miles: 53% once, 20% twice, 12% 3x, 6% 4x, 6% 5-7x, 2% 8-11x, 1% 12x+ (max 30).
+PASS_EDGES = [1, 2, 3, 4, 5, 8, 12]                    # band k = passes >= PASS_EDGES[k]
+PASS_LABELS = ["1", "2", "3", "4", "5-7", "8-11", "12+"]
 PASS_RGB = list(CFG["ramp"])           # set from TEAMS (main() rebinds for --team)
-PASS_W = [1.6, 2.2, 2.8, 3.6, 4.6]                     # line width (x SS)
+PASS_W = [1.6, 2.0, 2.4, 2.9, 3.4, 4.0, 4.8]           # line width (x SS)
 MONTH = {3: "Apr", 4: "Apr", 5: "May", 6: "Jun", 7: "Jul", 8: "Aug", 9: "Sep", 10: "Sep"}
 
 # --- projection: Albers equal-area conic on a sphere, km --------------------------
@@ -436,6 +440,10 @@ def init(tour: dict, platform: str) -> None:
     G["pruns"] = runs
     G["shade"] = K.shade()
     G["end"] = end_rows(tour)
+    lg = Image.open(HERE / "assets" / CFG["logo"]).convert("RGBA")
+    lg = lg.crop(lg.getbbox())
+    f = min(380 / lg.width, 380 / lg.height)             # fits between the HUD and the hook text
+    G["logo"] = lg.resize((round(lg.width * f), round(lg.height * f)), Image.LANCZOS)
 
 
 def split_runs(mode: np.ndarray) -> list[tuple[str, int, int]]:
@@ -610,7 +618,7 @@ def render(i: int) -> bytes:
         for bd, lab in enumerate(PASS_LABELS):
             d.rounded_rectangle((lx, ly - 7, lx + 14, ly + 7), 3, fill=PASS_RGB[bd])
             d.text((lx + 22, ly), lab, font=K.F("small"), fill=K.MUTED, anchor="lm")
-            lx += 22 + K.F("small").getlength(lab) + 28
+            lx += 22 + K.F("small").getlength(lab) + 16
     K.watermark(d, 1 - card_a)                      # not under the end card
 
     if DRIVE_START <= s <= DRIVE_END + 0.6:
@@ -640,6 +648,12 @@ def render(i: int) -> bytes:
                             series_line(stp))
 
     hook_a = 1 - K.smoothstep((s - (K.HOOK - 0.3)) / 0.5)
+    if hook_a > 0:                                  # the team's logo over the hook: the thumbnail (Max, 2026-10-16)
+        lg = G["logo"]
+        if hook_a < 1:
+            lg = lg.copy()
+            lg.putalpha(lg.getchannel("A").point(lambda v: int(v * hook_a)))
+        im.alpha_composite(lg, ((W - lg.width) // 2, int(K.MAP_TOP + 40)))
     K.hook(im, [f"{tour['miles']:,.0f} miles.", "Every game."],
            "Every 2026 game, home and away, by car", hook_a, center_y=K.TEXT_FLOOR - 230)
     K.end_card(im, *G["end"], card_a)
