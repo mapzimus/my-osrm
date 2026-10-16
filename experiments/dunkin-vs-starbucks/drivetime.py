@@ -130,10 +130,16 @@ def main() -> None:
     ap.add_argument("--bench", action="store_true", help="time 30 random tiles and estimate the full run")
     ap.add_argument("--workers", type=int, default=3, help="parallel requests to the engine")
     ap.add_argument("--stores", help="folder with stores.csv (chain, lon, lat); outputs go there")
+    ap.add_argument("--mask", help="road_mask.npy (bool per road point): time only these; the rest stay unreached "
+                                   "(wawa-vs-sheetz/: the states with a store)")
     args = ap.parse_args()
     out_dir = Path(args.stores).resolve() if args.stores else CACHE
 
     lon_all, lat_all, stores = load(out_dir)
+    n_full, keep = len(lon_all), None
+    if args.mask:
+        keep = np.flatnonzero(np.load(args.mask))
+        lon_all, lat_all = lon_all[keep], lat_all[keep]
     key = np.round(lon_all / CELL_DEG).astype(np.int64) * 100_000 + np.round(lat_all / CELL_DEG).astype(np.int64)
     _, rep, cell_of = np.unique(key, return_index=True, return_inverse=True)
     lon, lat = lon_all[rep], lat_all[rep]          # one real road point per cell
@@ -176,6 +182,10 @@ def main() -> None:
                   flush=True)
 
     full = times[:, cell_of]
+    if keep is not None:                         # back to every road point; outside the mask: not timed
+        f2 = np.full((len(NAMES), n_full), np.nan, np.float32)
+        f2[:, keep] = full
+        full = f2
     filled = np.nan_to_num(full, nan=np.inf)
     winner = np.where(np.isinf(filled).all(0), 255, filled.argmin(0)).astype(np.uint8)
     arrival = np.where(winner == 255, np.nan, filled.min(0)).astype(np.float32)
