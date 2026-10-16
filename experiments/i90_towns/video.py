@@ -65,11 +65,12 @@ STATE_S = 1.5           # state-line banner
 
 def size(pop: int) -> tuple[float, float, str]:
     """Dot radius, label px and font for a population (log scale; Max
-    2026-10-13: size and boldness by population)."""
+    2026-10-13: size and boldness by population). Max 2026-10-16: names were too
+    small to read on a phone (17-46 px), so 34-72 px and one weight bolder; the
+    smallest is about the now-label's size."""
     lg = math.log10(max(pop, 500) / 1000)
-    face = ("segoeui.ttf" if pop < 10_000 else "seguisb.ttf" if pop < 50_000
-            else "segoeuib.ttf" if pop < 250_000 else "seguibl.ttf")
-    return min(11.0, max(3.0, 3.5 + 2.6 * lg)), min(46.0, max(17.0, 16 + 9 * lg)), face
+    face = ("seguisb.ttf" if pop < 10_000 else "segoeuib.ttf" if pop < 250_000 else "seguibl.ttf")
+    return min(11.0, max(3.0, 3.5 + 2.6 * lg)), min(72.0, max(34.0, 32 + 12 * lg)), face
 
 
 # --- projection: Albers equal-area conic on a sphere, km --------------------------
@@ -496,9 +497,9 @@ def render(i: int) -> bytes:
             rr = r * pop
             od.ellipse((x - rr, y - rr, x + rr, y + rr), fill=(*K.ACCENT, 255), outline=(*K.WATER, 255), width=2)
             keep = t["pop"] >= KEEP_POP
-            a = 1.0 if keep else max(0.0, min(1.0, age / 0.12, (LABEL_S - age) / 0.4))
+            a = 1.0 if keep else max(0.0, min(1.0, age / 0.12, (LABEL_S - age) / 0.2))   # quick fades: big names crowd (2026-10-16)
             if j in gone and not keep:
-                a *= max(0.0, 1 - (s - gone[j]) / 0.25)
+                a *= max(0.0, 1 - (s - gone[j]) / 0.1)
             if s > DRIVE_END:
                 a *= max(0.0, 1 - (s - DRIVE_END) / 0.6)
         if a <= 0:
