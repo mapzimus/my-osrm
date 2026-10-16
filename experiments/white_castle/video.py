@@ -393,6 +393,10 @@ def init(tour: dict, platform: str) -> None:
         G["state_done"].append(seen[x["state"]])
     G["highlights"] = highlights(st)
     G["shade"] = K.shade()
+    lg = Image.open(HERE / "assets" / "logo.png").convert("RGBA")       # en.wikipedia File:White_Castle_logo.svg
+    lg = lg.crop(lg.getbbox())
+    f = min(420 / lg.width, 380 / lg.height)
+    G["logo"] = lg.resize((round(lg.width * f), round(lg.height * f)), Image.LANCZOS)
     G["end"] = end_rows(tour)
 
 
@@ -580,6 +584,12 @@ def render(i: int) -> bytes:
             K.now_label(d, kicker, stp["town"], f"{k_st} of {n_st} in {STATE_NAME[code(stp['state'])]}")
 
     hook_a = 1 - K.smoothstep((s - (K.HOOK - 0.3)) / 0.5)
+    if hook_a > 0:                                  # the logo over the hook: the thumbnail (Max, 2026-10-16)
+        lg = G["logo"]
+        if hook_a < 1:
+            lg = lg.copy()
+            lg.putalpha(lg.getchannel("A").point(lambda v: int(v * hook_a)))
+        im.alpha_composite(lg, ((W - lg.width) // 2, int(K.MAP_TOP + 40)))
     K.hook(im, [f"{n_all:,} White Castles.", f"{tour['hours']:.0f} hours."],
            "The fastest drive to every one", hook_a, center_y=K.TEXT_FLOOR - 230)
     K.end_card(im, *G["end"], card_a)
