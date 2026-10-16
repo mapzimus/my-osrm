@@ -1,6 +1,5 @@
 """Optimal Drives: every Spirit Halloween of the 2026 season (Max, 2026-10-16), 1,497 stores in all
-50 states, one trip, Bangor, ME to Anchorage, AK. Hook: leave today and you finish Nov. 18, weeks
-after the pop-ups close. Spirit's logo opens the video (thumbnail). Adapted from white_castle/video.py;
+50 states, one trip, Bangor, ME to Anchorage, AK. Spirit's logo opens the video (thumbnail). Adapted from white_castle/video.py;
 the college video's sound (a tick per store, a chime per finished chip, a chord).
 
 Run inventory.py, then experiments/walmart/build.py --cache experiments/spirit_halloween/cache --max-leg-h 30.
@@ -164,8 +163,7 @@ def end_rows(tour: dict) -> tuple[list[tuple[str, str]], list[str]]:
     rows = [(f"{len(st):,} stores", f"every Spirit Halloween, all {len({code(s['state']) for s in st})} states"),
             (f"{drive_h:.0f} hours", f"{drive_h / 24:.0f} days nonstop, incl. 3 flights"),
             (f"{tour['miles']:,.0f} miles", f"{st[0]['town']} to {st[-1]['town']}"),
-            (f"{days:.0f} days", f"at {DAY_DRIVE_H} hours of driving a day"),
-            (finish(drive_h), "the finish, leaving now; Halloween is Oct. 31")]
+            (f"{days:.0f} days", f"at {DAY_DRIVE_H} hours of driving a day")]
     footer = ["Stores: Spirit Halloween locator via AllThePlaces (Oct 10, 2026)", "Routing: OSRM, no traffic"]
     return rows, footer
 
@@ -606,8 +604,8 @@ def render(i: int) -> bytes:
             lg = lg.copy()
             lg.putalpha(lg.getchannel("A").point(lambda v: int(v * hook_a)))
         im.alpha_composite(lg, ((W - lg.width) // 2, int(K.MAP_TOP + 120)))
-    K.hook(im, [f"{n_all:,} stores.", f"Done {finish(tour['hours'])}."],
-           "Leave today: the fastest drive to every one", hook_a, center_y=K.TEXT_FLOOR - 230)
+    K.hook(im, [f"{n_all:,} stores.", f"{tour['hours']:.0f} hours."],           # no finish date (Max, 2026-10-16)
+           "The fastest drive to every one", hook_a, center_y=K.TEXT_FLOOR - 230)
     K.end_card(im, *G["end"], card_a)
     return im.convert("RGB").tobytes()
 
