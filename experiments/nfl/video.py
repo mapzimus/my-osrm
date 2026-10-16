@@ -493,10 +493,11 @@ class Reel:
 
     def stadium_dots(self, img, view):
         x, y, k = view
+        r = 5 if k <= 1.3 * self.us_k else 2          # small on the shrunken map under the end card
         for (sx, sy) in self.D["sxy"]:
             u, v = (sx - x) / k + W / 2, (y - sy) / k + K.MAP_CENTER_Y
             if -10 < u < W + 10 and -10 < v < H + 10:
-                cv2.circle(img, (int(u * 16), int(v * 16)), 5 * 16, (255, 255, 255), -1, cv2.LINE_AA, 4)
+                cv2.circle(img, (int(u * 16), int(v * 16)), r * 16, (255, 255, 255), -1, cv2.LINE_AA, 4)
         return img
 
     # --- text
@@ -509,24 +510,68 @@ class Reel:
         return rows, ["Each road and Census 2020 tract goes to the stadium that's the shortest drive, no traffic",
                       "Roads: OpenStreetMap   Routing: OSRM"]
 
+    # End card (Max, 2026-10-16: "show the answer better"; dataviz: hero figure + emphasis bars).
+    # The answer big; then the top 8 as bars, the winner in gold and the rest grey (emphasis:
+    # 1 hue + grey, validated on the card surface: CVD dE 21, normal dE 25; the grey's sub-3:1
+    # contrast is relieved by a name and value on every bar); text in ink, never team colour.
+    WIN_RGB, REST_RGB = (0xC4, 0x87, 0x0B), (0x56, 0x5E, 0x6E)
+    TOP_N = 5                              # 8 left the finished map a speck under the card
+
     def end_card(self, im, alpha):
-        rows, footer = self.end_rows()
-        top = K.TOP + 160
-        bottom = top + 40 + len(rows) * 110 + 40 + 36 * (len(footer) + 1) + 30
+        rk = self.ranking()
+        top = K.TOP + 150
+        hero_h, row_h = 300, 60
+        bottom = top + 40 + hero_h + self.TOP_N * row_h + 30 + row_h + 30 + 36 * 2 + 50
         if alpha <= 0:
             return bottom
         layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
         d = ImageDraw.Draw(layer)
-        d.rounded_rectangle((50, top, W - 50, bottom), 28, fill=K.CARD_FILL, outline=K.BORDER, width=2)
-        for r, (big, label, col) in enumerate(rows):
-            yy = top + 40 + r * 110
-            d.text((96, yy), big, font=K.F("card"), fill=col)
-            d.text((W - 96, yy + 34), label, font=K.F("small"), fill=K.MUTED, anchor="rm")
-        yy = top + 40 + len(rows) * 110 + 30
-        for line in footer:
-            d.text((W / 2, yy), line, font=K.F("small"), fill=K.MUTED, anchor="mt")
-            yy += 36
-        d.text((W / 2, yy + 4), f"{K.SERIES}  ·  {K.HANDLE}", font=K.F("label"), fill=K.INK, anchor="mt")
+        d.rounded_rectangle((40, top, W - 40, bottom), 28, fill=K.CARD_FILL, outline=K.BORDER, width=2)
+        p0, name0, _, s0 = rk[0]
+        y = top + 34
+        d.text((W / 2, y), "MOST AMERICANS CLOSEST", font=K.F("tag"), fill=K.MUTED, anchor="mt")
+        y += 48
+        teams = STADIUMS[s0]
+        lg = [self.logo(t, 96) for t in teams]
+        tw = K.F("card").getlength(name0)
+        x = W / 2 - (len(lg) * 104 + tw) / 2
+        for g in lg:
+            layer.alpha_composite(g, (int(x), int(y)))
+            x += 104
+        d.text((x + 6, y + 48), name0, font=K.F("card"), fill=K.INK, anchor="lm")
+        y += 112
+        d.text((W / 2, y), f"{p0 / 1e6:.1f} million people", font=K.F("hook_sub").font_variant(size=76),
+               fill=K.INK, anchor="mt")
+        y += 92
+        venue = next(r["name"] for r in csv.DictReader(open(CACHE / "stores.csv", encoding="utf-8")) if r["chain"] == s0)
+        d.text((W / 2, y), f"live closer to {venue} than to any other NFL stadium", font=K.F("small"),
+               fill=K.MUTED, anchor="mt")
+        y = top + 40 + hero_h
+
+        def row(yy, p, nm, s, rgb):
+            lx = 70
+            for q, t in enumerate(STADIUMS[s]):
+                layer.alpha_composite(self.logo(t, 44), (lx + q * 48, int(yy + 6)))
+            x0, x1 = 350, W - 190
+            d.text((x0 - 16, yy + 28), nm if len(nm) < 15 else nm.replace(" & ", "/"), font=K.F("small"),
+                   fill=K.INK, anchor="rm")
+            bw = max(8, (x1 - x0) * p / rk[0][0])
+            d.rounded_rectangle((x0, yy + 12, x0 + bw, yy + 44), 4, fill=rgb)
+            d.text((x0 + bw + 14, yy + 28), f"{p / 1e6:.1f} M", font=K.F("small"), fill=K.INK, anchor="lm")
+        for k, (p, nm, _, s) in enumerate(rk[:self.TOP_N]):
+            row(y + k * row_h, p, nm, s, self.WIN_RGB if k == 0 else self.REST_RGB)
+        y += self.TOP_N * row_h + 12
+        d.line((70, y, W - 70, y), fill=K.BORDER, width=2)
+        y += 18
+        p, nm, _, s = rk[-1]
+        d.text((70, y - 4), "FEWEST", font=K.F("tag"), fill=K.MUTED, anchor="lt")
+        row(y + 14, p, nm, s, self.REST_RGB)
+        y += row_h + 40
+        for line in ["People: Census 2020 tracts, each to its shortest-drive stadium, no traffic",
+                     "Roads: OpenStreetMap   Routing: OSRM"]:
+            d.text((W / 2, y), line, font=K.F("small"), fill=K.MUTED, anchor="mt")
+            y += 36
+        d.text((W / 2, y + 4), f"{K.SERIES}  ·  {K.HANDLE}", font=K.F("label"), fill=K.INK, anchor="mt")
         layer.putalpha(layer.getchannel("A").point(lambda v: int(v * alpha)))
         im.alpha_composite(layer)
         return bottom
@@ -562,7 +607,7 @@ class Reel:
                 xx = W * (c + 0.5) / 3
                 d.text((xx, K.TOP + 175), big, font=K.F("big"), fill=K.INK, anchor="mt")
                 d.text((xx, K.TOP + 270), unit, font=K.F("unit"), fill=K.MUTED, anchor="mt")
-        K.watermark(d)
+        K.watermark(d, 1 - card_a)                  # not through the end card
         if held in SPLITS and RACE_START <= sec <= RACE_END:
             a, b = held_range(held)
             al = min(1.0, (sec - a) / 0.4, (b - sec) / 0.4)
