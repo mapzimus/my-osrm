@@ -262,6 +262,9 @@ def init(tour: dict, platform: str) -> None:
     G["famous"] = {j: f for j, s in enumerate(st) if (f := famous(s["name"]))}
     pick_sides()
     G["shade"] = K.shade()
+    sh = Image.open(HERE / "assets" / "shield.png").convert("RGBA")       # Commons File:I-90.svg
+    sh = sh.crop(sh.getbbox())
+    G["shield"] = sh.resize((round(sh.width * 220 / sh.height), 220), Image.LANCZOS)
     G["end"] = end_rows(tour)
 
 
@@ -538,6 +541,12 @@ def render(i: int) -> bytes:
         K.now_label(d, STATE[t["state"]], clean(t["label"]), f"population {t['pop']:,}" if t["pop"] else "")
 
     hook_a = 1 - K.smoothstep((s - (K.HOOK - 0.3)) / 0.5)
+    if hook_a > 0:                                  # the I-90 shield over the hook: the thumbnail (Max, 2026-10-16)
+        lg = G["shield"]
+        if hook_a < 1:
+            lg = lg.copy()
+            lg.putalpha(lg.getchannel("A").point(lambda v: int(v * hook_a)))
+        im.alpha_composite(lg, ((W - lg.width) // 2, int(K.TEXT_FLOOR - 230 - 220 - lg.height)))
     K.hook(im, [f"{n_all} towns.", f"{tour['hours']:.0f} hours."],
            "Every town I-90 passes through, Seattle to Boston", hook_a, center_y=K.TEXT_FLOOR - 230)
     K.end_card(im, *G["end"], card_a)
