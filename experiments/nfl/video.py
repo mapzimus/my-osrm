@@ -415,6 +415,9 @@ class Reel:
         self.us_k = view_of("US", D["bounds"])[2]
         self.logos = {k: Image.open(LOGOS / f"{v[3]}.png").convert("RGBA") for k, v in TEAMS.items()}
         self.logo_cache = {}
+        sh = Image.open(HERE / "assets" / "nfl.png").convert("RGBA")
+        sh = sh.crop(sh.getbbox())
+        self.shield = sh.resize((round(sh.width * 300 / sh.height), 300), Image.LANCZOS)
         # cumulative people per stadium as roads are reached: tracts take their road's arrival
         self.chimes = self.chime_times()
 
@@ -578,17 +581,27 @@ class Reel:
             K.callout(ImageDraw.Draw(over), xx, yy, f"Last road: {hm(self.ts[-1])}, near {self.D['last_town']}", al)
             im.alpha_composite(over)
         hook_a = 1 - K.smoothstep((sec - (K.HOOK - 0.3)) / 0.5)
-        if hook_a > 0:
-            p, lab_, col, _ = self.ranking()[0]
+        if hook_a > 0:                       # the question, under the NFL shield (Max, 2026-10-16); the answer is the end card
+            from PIL import ImageFont
             layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
             dd = ImageDraw.Draw(layer)
             a = int(255 * hook_a)
-            y0 = K.TEXT_FLOOR - 230 - (2 * 128 + 70) / 2
-            dd.rectangle((0, y0 - 50, W, y0 + 2 * 128 + 110), fill=(0, 0, 0, int(170 * hook_a)))
-            dd.text((W / 2, y0), lab_, font=K.F("hook"), fill=(*col, a), anchor="mt")
-            dd.text((W / 2, y0 + 128), f"{mil(p)} people", font=K.F("hook"), fill=(*K.INK, a), anchor="mt")
-            dd.text((W / 2, y0 + 2 * 128 + 20), "closer to their stadium than any other",
-                    font=K.F("hook_sub"), fill=(*K.MUTED, a), anchor="mt")
+            lines = ["Which NFL team is", "closest to the", "most Americans?"]
+            f0 = K.F("hook")
+            size = f0.size
+            while max(f0.font_variant(size=size).getlength(t) for t in lines) > W - 90:
+                size -= 4
+            f = f0.font_variant(size=size)
+            lh = int(size * 1.12)
+            y0 = K.TEXT_FLOOR - 200 - len(lines) * lh / 2
+            dd.rectangle((0, y0 - 40, W, y0 + len(lines) * lh + 40), fill=(0, 0, 0, int(170 * hook_a)))
+            for r, t in enumerate(lines):
+                dd.text((W / 2, y0 + r * lh), t, font=f, fill=(*(K.INK if r < 2 else (255, 182, 18)), a), anchor="mt")
+            lg = self.shield
+            if hook_a < 1:
+                lg = lg.copy()
+                lg.putalpha(lg.getchannel("A").point(lambda v: int(v * hook_a)))
+            layer.alpha_composite(lg, ((W - lg.width) // 2, int(max(K.MAP_TOP + 10, y0 - 60 - lg.height))))
             im.alpha_composite(layer)
         self.end_card(im, card_a)
 
