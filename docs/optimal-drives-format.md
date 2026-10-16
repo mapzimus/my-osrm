@@ -140,7 +140,7 @@ Applies to Optimal Drives and Turf Wars.
 
 **Logo.**
 - The subject's official logo: the chain, brand, team or league (NFL shield, Red Sox B,
-  Spirit wordmark). For a viewer request, the subject's logo, never the request DM.
+  Spirit wordmark). For a viewer request, the subject's logo; a public comment also shows as a comment card (a DM never).
 - Sources, in order: ESPN's CDN for teams and leagues
   (`a.espncdn.com/i/teamlogos/<league>/500/<abbr>.png`), the brand site's own logo
   (firecrawl `branding` → `images.logo`), Wikipedia's file of the logo (Wikidata P154 or
