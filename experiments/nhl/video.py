@@ -631,7 +631,7 @@ def render(i: int) -> bytes:
         for j in np.flatnonzero(visited):
             done[G["group"][j]] += 1
         K.chips(d, [(CHIP[g], done[g], G["totals"][g]) for g in GROUPS if G["totals"][g]])
-    K.watermark(d)
+    K.watermark(d, (1 - card_a) * (0.0 if s < COMMENT_S + 0.4 else 1.0))   # not under the comment or the card
 
     if DRIVE_START <= s <= DRIVE_END + 0.6:
         if q >= 0:
