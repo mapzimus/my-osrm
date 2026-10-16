@@ -1,4 +1,7 @@
 """Every passenger airport: drive time to the nearest one, the 65 s social cut (TikTok and Reels).
+v2 (Max, 2026-10-16: "super low engagement even though it's a strong map, try again"): the first frame
+asks the question with a plane over the map instead of stating the answer, and the end card is the
+answer card (docs/optimal-drives-format.md 6a): the number big, then the top states, the first in gold.
 
 Idea #79. Built from experiments/hospitals/reel.py (same engine, camera and stats).
 Every airport with passenger service "leaves" at once; each road lights up when the nearest one reaches it,
@@ -456,57 +459,74 @@ class Reel:
                   "How far is yours?", min(1.0, (sec - a) / 0.4, (CARD_IN - sec) / 0.4))
         hook_a = 1 - K.smoothstep((sec - (K.HOOK - 0.3)) / 0.5)
         if hook_a > 0:
-            K.hook(im, [millions(self.d["far30"]), "Americans"], "live over an hour from any airport with passenger flights", hook_a)
+            self.hook_q(im, hook_a)
         self.end_card(im, card_a)
 
+    def hook_q(self, im: Image.Image, alpha: float) -> None:
+        """First frame: a plane and the question (format doc 6a; no brand logo for airports)."""
+        layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
+        dd = ImageDraw.Draw(layer)
+        a = int(255 * alpha)
+        lines = ["Can you get to", "an airport in", "under an hour?"]
+        f0 = K.F("hook")
+        size = f0.size
+        while max(f0.font_variant(size=size).getlength(t_) for t_ in lines) > W - 90:
+            size -= 4
+        f = f0.font_variant(size=size)
+        lh = int(size * 1.12)
+        y0 = K.TEXT_FLOOR - 200 - len(lines) * lh / 2
+        dd.rectangle((0, y0 - 40, W, y0 + len(lines) * lh + 40), fill=(0, 0, 0, int(170 * alpha)))
+        for r_, t_ in enumerate(lines):
+            dd.text((W / 2, y0 + r_ * lh), t_, font=f, fill=(*(K.INK if r_ < 2 else K.ACCENT), a), anchor="mt")
+        big = Image.new("RGBA", (W * 2, H * 2), (0, 0, 0, 0))            # the house plane glyph, large
+        K.glyph(ImageDraw.Draw(big), K.PLANE, W, int(2 * (y0 - 170)), -0.5, 17.0)
+        big = big.resize((W, H), Image.LANCZOS)
+        if alpha < 1:
+            big.putalpha(big.getchannel("A").point(lambda v: int(v * alpha)))
+        layer.alpha_composite(big)
+        im.alpha_composite(layer)
+
     def end_card(self, im: Image.Image, alpha: float) -> int:
-        """KPI rows, then the five states with the largest share of people far from a passenger airport: ranked
-        stacked bars (one segment per far band, 2px gaps, the map's colours), total at the tip, no grid."""
-        rows = [(f"{len(self.d['hx']):,}", "airports with passenger flights"),
-                (millions(self.d["far30"]), "people an hour+ from one"),
-                (millions(self.d["far60"]), "people 2 hours+ from one"),
-                (hm_long(self.d["ts"][-1]), "longest drive: " + ("north of Opheim, Montana" if "Opheim" in self.d["place"]
-                                                  else self.d["place"].removeprefix("near "))
-                 + (" logging roads" if self.d["place"] == "North Maine Woods" else ""))]
-        top = K.TOP + 160
-        bars_top = top + 40 + len(rows) * 100 + 20
+        """The answer (format doc 6a): how many people are an hour+ from a passenger airport, big; then
+        the five states with the largest share an hour+ away as bars, the first gold and the rest grey
+        (emphasis, validated on the card), a value on every bar."""
+        WIN, REST = (0xC4, 0x87, 0x0B), (0x56, 0x5E, 0x6E)
+        top = K.TOP + 150
+        row_h = 56
         footer = ["Drive time from the nearest passenger airport, no traffic",
                   "Airports: FAA 2025 commercial service   People: Census 2020   OSM   OSRM"]
-        bottom = bars_top + 88 + 5 * 44 + 30 + 36 * (len(footer) + 1) + 30 + 50
+        bottom = top + 40 + 270 + 50 + 5 * row_h + 30 + 36 * (len(footer) + 1) + 30 + 50
         if alpha <= 0:
             return bottom
         layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
         d = ImageDraw.Draw(layer)
-        d.rounded_rectangle((50, top, W - 50, bottom), 28, fill=K.CARD_FILL, outline=K.BORDER, width=2)
-        for r, (big, label) in enumerate(rows):
-            y = top + 40 + r * 100
-            d.text((96, y), big, font=K.F("card"), fill=K.INK)
-            d.text((W - 96, y + 34), label, font=K.F("small"), fill=K.MUTED, anchor="rm")
-        d.text((96, bars_top), "Share of people an hour+ from a passenger airport", font=K.F("label"), fill=K.INK)
-        far = range(len(RAMP) - 1, len(RAMP))
-        lx = 96
-        for c in []:                                                       # legend row: the stacked parts
-            d.rounded_rectangle((lx, bars_top + 50, lx + 14, bars_top + 64), 3, fill=RAMP[c])
-            d.text((lx + 22, bars_top + 57), BAND_LABELS[c], font=K.F("small"), fill=K.MUTED, anchor="lm")
-            lx += 22 + K.F("small").getlength(BAND_LABELS[c]) + 36
+        d.rounded_rectangle((40, top, W - 40, bottom), 28, fill=K.CARD_FILL, outline=K.BORDER, width=2)
+        y = top + 34
+        d.text((W / 2, y), "AN HOUR OR MORE FROM ANY AIRPORT", font=K.F("tag"), fill=K.MUTED, anchor="mt")
+        y += 46
+        d.text((W / 2, y), f"{self.d['far30'] / 1e6:.1f} million people", font=K.F("hook_sub").font_variant(size=84),
+               fill=K.INK, anchor="mt")
+        y += 108
+        d.text((W / 2, y), "live over an hour's drive from an airport with passenger flights", font=K.F("small"),
+               fill=K.MUTED, anchor="mt")
+        y += 44
+        d.text((W / 2, y), f"{self.d['far60'] / 1e6:.1f} million are 2 hours+  ·  longest: {hm_long(self.d['ts'][-1])}, "
+               + ("north of Opheim, MT" if "Opheim" in self.d["place"] else self.d["place"].removeprefix("near ")),
+               font=K.F("small"), fill=K.MUTED, anchor="mt")
+        y = top + 40 + 270
+        d.text((W / 2, y), "Most of their people an hour+ away", font=K.F("label"), fill=K.INK, anchor="mt")
+        y += 50
         top5 = self.d["states"][:5]
-        bx0, bx1 = 170, W - 190
-        scale = (bx1 - bx0) / sum(top5[0][0])
+        x0, x1 = 170, W - 170
+        best = sum(top5[0][0])
         for r, (shares, st) in enumerate(top5):
-            y = bars_top + 88 + r * 44 + 10
-            d.text((bx0 - 20, y + 12), st, font=K.F("label"), fill=K.MUTED, anchor="rm")
-            segs = [(c, s * scale) for c, s in zip(far, shares) if s * scale >= 1]
-            x = float(bx0)
-            for k, (c, w) in enumerate(segs):
-                if k == len(segs) - 1:
-                    d.rounded_rectangle((x, y, x + max(w, 8), y + 24), 4, fill=RAMP[c],
-                                        corners=(False, True, True, False))
-                else:
-                    d.rectangle((x, y, x + w - 2, y + 24), fill=RAMP[c])
-                x += w
-            d.text((bx0 + sum(shares) * scale + 14, y + 12), pct_down(sum(shares)), font=K.F("label"),
-                   fill=K.INK, anchor="lm")
-        y = bars_top + 88 + 5 * 44 + 30
+            yy = y + r * row_h
+            v = sum(shares)
+            d.text((x0 - 16, yy + 26), st, font=K.F("label"), fill=K.INK, anchor="rm")
+            bw = max(8, (x1 - x0) * v / best)
+            d.rounded_rectangle((x0, yy + 11, x0 + bw, yy + 41), 4, fill=WIN if r == 0 else REST)
+            d.text((x0 + bw + 14, yy + 26), pct_down(v), font=K.F("label"), fill=K.INK, anchor="lm")
+        y += 5 * row_h + 30
         for line in footer:
             d.text((W / 2, y), line, font=K.F("small"), fill=K.MUTED, anchor="mt")
             y += 36
