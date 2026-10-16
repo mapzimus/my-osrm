@@ -19,7 +19,9 @@ Reference video: `experiments/college_tour/` (every college in New England).
    by straight lines, nothing hand-animated.
 2. **The look.** Dark map, one amber trail, a ticking clock, stat chips, a
    closing stat card. Same every time.
-3. **The answer first.** Frame 1 states the result. No slow build-up.
+3. **Logo and a question first.** Frame 1 is the subject's logo over the
+   map with the question the video answers; the answer lands on the end card
+   (section 6a; Max, 2026-10-16).
 4. **Honest numbers.** On-screen stats match the data exactly, and the end
    card says what the number leaves out ("nonstop driving").
 
@@ -117,7 +119,7 @@ Amber means "done / reached / the answer". Nothing else gets amber.
 
 | Time | Beat |
 |---|---|
-| 0 to 2.2 s | **Hook.** Whole map, every place already showing, the answer in big type: "212 colleges. 59.9 hours." The first frame works as the thumbnail. |
+| 0 to 2.2 s | **Hook.** Whole map, every place already showing, the subject's logo and the opening question in big type (section 6a). The first frame is the thumbnail. |
 | 2.2 to 4 s | Hook fades, HUD appears, the camera dives to the start. |
 | 4 s to end − 6 s | **The drive.** The camera follows; the clock runs. |
 | end − 6 to end − 4 s | Pull back to the whole route. |
@@ -130,6 +132,33 @@ runs at a varying speed.
 
 **Camera.** Follow the subject with smoothing (no jitter). Zoom out on long
 empty stretches, zoom in on clusters. No cuts; every move is continuous.
+
+## 6a. The first frame: logo + opening question
+
+Standard since 2026-10-16 (Max: "Logos and opening questions", after the NFL Turf Wars opener).
+Applies to Optimal Drives and Turf Wars.
+
+**Logo.**
+- The subject's official logo: the chain, brand, team or league (NFL shield, Red Sox B,
+  Spirit wordmark). For a viewer request, the subject's logo, never the request DM.
+- Sources, in order: ESPN's CDN for teams and leagues
+  (`a.espncdn.com/i/teamlogos/<league>/500/<abbr>.png`), the brand site's own logo
+  (firecrawl `branding` → `images.logo`), Wikipedia's file of the logo (Wikidata P154 or
+  `File:<Name>_logo.svg`, the 1280 px thumbnail). At least ~400 px wide before resizing.
+- Keep it in `<video>/assets/`. Crop the transparent padding (`getbbox()`); clear an
+  opaque white box if the file has one (Spirit's did).
+- Size: fits a 380-420 px box (wordmarks up to ~760 px wide), centred between the HUD and
+  the hook text, from `MAP_TOP + 40`. Never over the chips, legend or header.
+- It fades out with the hook text (same alpha).
+
+**Opening question.**
+- Two or three lines in the hook font, the question the video answers, in plain words:
+  "Which NFL team is closest to the most Americans?" The last line in an accent colour.
+  Auto-shrink the font until every line fits `W - 90`.
+- The answer is not on the first frame; it lands on the end card (and in the caption).
+- Tour videos ask the tour's question ("How long to drive to every Spirit Halloween?"),
+  answered by the clock and the end card.
+- Keep a darkening band behind the text so it reads over the busy finished map.
 
 ## 7. Labels and callouts
 
@@ -216,7 +245,7 @@ Comment a place and I'll map it.
 
 ## 13. Before posting
 
-- [ ] First frame states the answer and reads well as a thumbnail.
+- [ ] First frame: the subject's logo and the opening question, readable as a thumbnail (6a).
 - [ ] Nothing important under the bottom 280 px or the right-side buttons.
 - [ ] The clock and the end card agree with `build.py`'s printed totals.
 - [ ] Every famous callout is spelled right.
