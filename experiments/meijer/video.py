@@ -1,6 +1,7 @@
 """Optimal Drives: every Meijer (viewer request, 2026-10-16), 279 stores in 6 states, one drive.
 Adapted from white_castle/video.py; first frame is the Meijer logo and the question, the answer
-card ends it (docs/optimal-drives-format.md 6a). The viewer's comment is not shown (Max).
+card ends it (docs/optimal-drives-format.md 6a). The viewer's comment (Goober2663, TikTok) opens
+it over the hook, as in culvers/ (Max, 2026-10-16: a public comment goes in; a DM never does).
 Sound as the college video: a tick per store, a chime per finished state, a chord.
 
 Run inventory.py, then experiments/walmart/build.py --cache experiments/meijer/cache --max-leg-h 30.
@@ -391,9 +392,10 @@ def init(tour: dict, platform: str) -> None:
         G["state_done"].append(seen[x["state"]])
     G["highlights"] = highlights(st)
     G["shade"] = K.shade()
+    G["comment"] = comment_card()
     lg = Image.open(HERE / "assets" / "logo.png").convert("RGBA")       # Commons File:Meijer_logo.svg
     lg = lg.crop(lg.getbbox())
-    f = min(560 / lg.width, 260 / lg.height)
+    f = min(300 / lg.width, 118 / lg.height)              # room for the comment card above it
     G["logo"] = lg.resize((round(lg.width * f), round(lg.height * f)), Image.LANCZOS)
     G["end"] = end_rows(tour)
 
@@ -417,6 +419,22 @@ def simplified(xy: np.ndarray, tol: float) -> np.ndarray:
 
 
 WIN_RGB, REST_RGB = (0xC4, 0x87, 0x0B), (0x56, 0x5E, 0x6E)     # format doc 6a (validated on the card)
+COMMENT = HERE / "assets" / "comment.jpg"     # the request, Max's screenshot
+COMMENT_S = 3.4                               # on screen from the first frame (culvers/)
+
+
+def comment_card() -> Image.Image:
+    """The viewer's comment, rounded, on a thin border, W - 200 px wide (culvers/video.py)."""
+    im = Image.open(COMMENT).convert("RGBA")
+    w = W - 200
+    im = im.resize((w, round(im.height * w / im.width)), Image.LANCZOS)
+    mask = Image.new("L", im.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, im.width - 1, im.height - 1), 24, fill=255)
+    im.putalpha(mask)
+    card = Image.new("RGBA", (im.width + 6, im.height + 6), (0, 0, 0, 0))
+    ImageDraw.Draw(card).rounded_rectangle((0, 0, card.width - 1, card.height - 1), 27, fill=(*K.BORDER, 255))
+    card.alpha_composite(im, (3, 3))
+    return card
 
 
 def hook_q(im: Image.Image, alpha: float) -> None:
@@ -441,7 +459,8 @@ def hook_q(im: Image.Image, alpha: float) -> None:
     if alpha < 1:
         lg = lg.copy()
         lg.putalpha(lg.getchannel("A").point(lambda v: int(v * alpha)))
-    layer.alpha_composite(lg, ((W - lg.width) // 2, int(K.MAP_TOP + 40)))
+    cy = int(K.MAP_TOP + 14) + G["comment"].height + 14          # the logo sits under the comment
+    layer.alpha_composite(lg, ((W - lg.width) // 2, cy))
     im.alpha_composite(layer)
 
 
@@ -476,7 +495,7 @@ def answer_card(im: Image.Image, alpha: float, tour: dict) -> int:
         d.text((x0 + bw + 14, yy + 26), f"{per[c]}", font=K.F("small"), fill=K.INK, anchor="lm")
     y += len(order) * row_h + 30
     for line in ["Stores: Meijer locator via AllThePlaces + OpenStreetMap (Oct 2026)",
-                 "Routing: OSRM, no traffic, nonstop"]:
+                 "Routing: OSRM, no traffic, nonstop   ·   Requested by Goober2663"]:
         d.text((W / 2, y), line, font=K.F("small"), fill=K.MUTED, anchor="mt")
         y += 36
     d.text((W / 2, y + 4), f"{K.SERIES}  ·  {K.HANDLE}", font=K.F("label"), fill=K.ACCENT, anchor="mt")
@@ -630,7 +649,7 @@ def render(i: int) -> bytes:
         for j in np.flatnonzero(visited):
             done[G["group"][j]] += 1
         K.chips(d, [(CHIP[g], done[g], G["totals"][g]) for g in GROUPS if G["totals"][g]])
-    K.watermark(d, 1 - card_a)                      # fades with the end card
+    K.watermark(d, (1 - card_a) * (0.0 if s < COMMENT_S + 0.4 else 1.0))   # not under the comment or the card
 
     if DRIVE_START <= s <= DRIVE_END + 0.6:
         if q >= 0:
@@ -652,6 +671,11 @@ def render(i: int) -> bytes:
 
     hook_a = 1 - K.smoothstep((s - (K.HOOK - 0.3)) / 0.5)
     hook_q(im, hook_a)
+    ca = min(1.0, (COMMENT_S - s) / 0.4)
+    if ca > 0:                                               # the request, over the hook
+        card = G["comment"].copy()
+        card.putalpha(card.getchannel("A").point(lambda v: int(v * ca)))
+        im.alpha_composite(card, ((W - card.width) // 2, int(K.MAP_TOP + 14)))
     answer_card(im, card_a, tour)
     return im.convert("RGB").tobytes()
 
