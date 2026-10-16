@@ -4,8 +4,8 @@ Max: "If you were to drive a team's entire year's schedule, what would that look
 roads could be symbolized by how many times the route takes you on it."
 
 Schedule: MLB Stats API (cache/team_<id>.json, from probe.py), Final games only. The season
-starts and ends at the home park. One stop per stay (a series or a homestand, consecutive
-games at one park). Each leg is routed by the engine with OSM node ids, so every road segment
+starts and ends at the home park. One stop per series (Max, 2026-10-15: a homestand of
+two series is two stops, with no drive between them). Each leg is routed by the engine with OSM node ids, so every road segment
 (an OSM node pair, either direction) gets a pass number: 1 the first time the season drives it,
 2 the second, ... -> tour.json "pass" (one per vertex, for the segment ending there).
 
@@ -71,7 +71,8 @@ def stays(team_id: int) -> tuple[str, list[dict]]:
         us, them = (g["teams"]["home"], g["teams"]["away"]) if is_home else (g["teams"]["away"], g["teams"]["home"])
         opp = them["team"]
         res = [us.get("score", 0), them.get("score", 0), bool(us.get("isWinner"))]      # final score, ours first
-        if out and out[-1]["name"] == v["name"]:
+        opp_name = teams.get(opp["id"], {}).get("teamName", opp.get("name", ""))
+        if out and out[-1]["name"] == v["name"] and out[-1]["opp"] == opp_name:      # one stop per series (Max)
             out[-1]["games"] += 1
             out[-1]["last"] = g["officialDate"]
             out[-1]["results"].append(res)
@@ -79,7 +80,7 @@ def stays(team_id: int) -> tuple[str, list[dict]]:
             continue
         out.append(dict(name=v["name"], town=f"{loc.get('city', '')}, {loc.get('stateAbbrev', '')}".strip(", "),
                         lon=c["longitude"], lat=c["latitude"], date=g["officialDate"], last=g["officialDate"],
-                        games=1, opp=teams.get(opp["id"], {}).get("teamName", opp.get("name", "")),
+                        games=1, opp=opp_name,
                         home=is_home, results=[res], times=[g["gameDate"]], region="US",
                         state=loc.get("stateAbbrev", "")))
     w = l = 0
@@ -105,6 +106,10 @@ def main() -> None:
     clock = metres = 0.0
     st[0]["t"] = 0.0
     for a, b in zip(st, st[1:]):
+        if a["name"] == b["name"]:                       # next series at the same park: no drive
+            b["t"] = clock
+            legs.append(dict(frm=a["name"], to=b["name"], h=0.0, mi=0.0, ferry=False, alaska=False))
+            continue
         r = get(f"{OSRM}/route/v1/driving/{a['lon']},{a['lat']};{b['lon']},{b['lat']}"
                 "?overview=full&geometries=polyline6&annotations=nodes,duration,distance")["routes"][0]
         leg = r["legs"][0]

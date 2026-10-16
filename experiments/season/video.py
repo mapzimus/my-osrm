@@ -175,7 +175,7 @@ def end_rows(tour: dict) -> tuple[list[tuple[str, str]], list[str]]:
     parks = len({x["name"] for x in st})
     rows = [(f"{tour['miles']:,.0f} miles", f"{st[0]['name']} to every game and home"),
             (f"{drive_h:.0f} hours", "behind the wheel"),
-            (f"{parks} ballparks", f"{len(st) - 1} trips"),
+            (f"{parks} ballparks", f"{sum(1 for g in tour['legs'] if g['mi'] > 0)} trips, {sum(1 for x in st if x.get('games'))} series"),
             (f"{w}-{l}", f"the 2026 {CFG['short']}")]
     footer = ["Schedule and scores: MLB Stats API. Routing: OSRM, no traffic",
               CFG["note"]]
