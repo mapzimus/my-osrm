@@ -160,6 +160,17 @@ Applies to Optimal Drives and Turf Wars.
   answered by the clock and the end card.
 - Keep a darkening band behind the text so it reads over the busy finished map.
 
+**The answer on the end card** (Max, 2026-10-16: "show the answer better"; built with the
+dataviz skill, reference `experiments/nfl/video.py` `end_card`):
+- A kicker naming the question ("MOST AMERICANS CLOSEST"), the winner's logo(s) and name, a
+  hero figure in big type ("25.4 million people") and one plain sentence of what it means.
+- Under it a short ranking: top 5 as horizontal bars, logo and name on the left, value in ink
+  right of the bar. Emphasis colours: the winner gold `#C4870B`, the rest grey `#565E6E`
+  (validated on the card surface; grey's sub-3:1 contrast is relieved by a label on every bar).
+  Text is ink, never the series colour. Then a divider and the other extreme ("FEWEST").
+- Sources and the sign-off at the bottom; the finished map below the card. Keep the card short
+  enough that the map stays readable (top 8 made it a speck).
+
 ## 7. Labels and callouts
 
 - Each place lights up amber with a short pop when reached. Draw dots at
