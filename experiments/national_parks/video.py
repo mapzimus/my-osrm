@@ -644,6 +644,7 @@ def main() -> None:
     # Off by default (format doc): add app audio when posting.
     # On by default here: the bells are the point (Max, 2026-10-15).
     ap.add_argument("--silent", dest="sound", action="store_false", help="no bells")
+    ap.add_argument("--sound", action="store_true", help=argparse.SUPPRESS)   # render.ps1 -Sound passes it; on anyway
     ap.add_argument("--tour", default=str(CACHE / "tour.json"), help="e.g. cache/sample50/tour.json for a trial")
     # Low memory (2026-10-14, 1.4 GB free): render in parts, each short enough to
     # finish in one sitting, then --join them (stream copy, no re-encode).
