@@ -69,16 +69,19 @@ RAMP = [(0x1C, 0x5C, 0xAB), (0x55, 0x98, 0xE7), (0xED, 0xA1, 0x00), (0xE6, 0x67,
 FAR = 4                                 # bands >= FAR are "1 hour+"
 DOT = (236, 239, 244)
 
-VIEWS = {"Boston": (-71.08, 42.33, 90), "Northeast": (-74.5, 41.6, 700), "Appalachia": (-81.6, 37.6, 600),
-         "Delta": (-90.6, 33.2, 600), "Great Plains": (-100.5, 44.0, 1100), "Mountain West": (-113.5, 40.8, 1200),
-         "Northern Rockies": (-114.8, 46.3, 650), "US": None}
-# (second, view): hold where two keys name the same view, move between. "Last" = the farthest road.
-# Max (2026-10-15): start zoomed in tight, tour regions as the country fills, then the final road.
-SHOTS = [(RACE_START, "Boston"), (6.3, "Boston"), (7.8, "Northeast"), (10.0, "Northeast"), (11.6, "Appalachia"),
-         (14.0, "Appalachia"), (15.6, "Delta"), (18.0, "Delta"), (20.0, "Great Plains"), (23.0, "Great Plains"),
-         (25.0, "Mountain West"), (28.5, "Mountain West"), (30.3, "Northern Rockies"), (33.3, "Northern Rockies"),
-         (35.8, "US"), (40.0, "US"), (43.0, "Last")]
-KICKERS = {"Boston": "Boston", "Appalachia": "Appalachia"}         # the rest get "The ..."
+# v2 (Max, 2026-10-16: "rethink where you zoom in"): from fastest to slowest, each view chosen from the
+# data (share of people an hour+ away, longest drive in view): New York 0% / 1.1 h, Eastern Kentucky 27% /
+# 2.4 h, Ozarks 23% / 2.6 h, Nebraska Sandhills 40% / 3.1 h, Big Bend 73% / 5.1 h with no airport in view,
+# then the country, the Great Basin and the farthest road (Harney County, OR, 5 h 54 min).
+VIEWS = {"New York": (-73.95, 40.75, 140), "Eastern Kentucky": (-83.3, 37.4, 380), "Ozarks": (-92.6, 36.3, 300),
+         "Nebraska Sandhills": (-100.9, 42.2, 420), "Big Bend": (-103.3, 29.9, 400),
+         "Great Basin": (-117.3, 41.6, 900), "US": None}
+SHOTS = [(RACE_START, "New York"), (6.0, "New York"), (8.0, "Eastern Kentucky"), (11.5, "Eastern Kentucky"),
+         (13.2, "Ozarks"), (16.5, "Ozarks"), (18.4, "Nebraska Sandhills"), (22.0, "Nebraska Sandhills"),
+         (24.0, "Great Basin"), (28.0, "Great Basin"), (30.0, "US"), (34.0, "US"), (36.0, "Big Bend"),
+         (40.6, "Big Bend"), (43.0, "Last")]           # Big Bend late: its roads are 3-5 h out (black before)
+KICKERS = {"New York": "New York", "Eastern Kentucky": "Eastern Kentucky", "Ozarks": "The Ozarks",
+           "Nebraska Sandhills": "The Nebraska Sandhills", "Big Bend": "Big Bend, Texas", "Great Basin": "The Great Basin"}
 LAST_KM = 180                            # frame width on the farthest road
 DETOUR = 3.0                             # road_ok(): drive time / straight-line estimate above this is a map error
 # road_ok(): (south, north, west, east, drop only over this many hours), why. Checked 2026-10-15.
