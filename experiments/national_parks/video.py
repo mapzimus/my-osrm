@@ -189,6 +189,8 @@ def note(s: dict) -> str:
         return f"{hm} by boat from {s['town']}"
     if s["access"] == "bush":
         return f"bush plane to {s['town']}"
+    if s["code"] == "EVER":
+        return "Gulf Coast Visitor Center, Everglades City"
     return PICK[s["code"]][1]
 
 

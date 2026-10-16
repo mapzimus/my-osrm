@@ -139,6 +139,7 @@ def main() -> None:
     ap.add_argument("--cache", help="folder with stores.json (name, lon, lat); outputs go there too")
     ap.add_argument("--max-leg-h", type=float, default=MAX_DRIVE_LEG_H,
                     help="longest allowed driving leg (NBA arenas: far apart by design)")
+    ap.add_argument("--start", help="name of the store the trip must start at (national_parks/: Everglades)")
     args = ap.parse_args()
 
     cache = Path(args.cache).resolve() if args.cache else HERE / "cache"
@@ -197,9 +198,11 @@ def main() -> None:
 
     op = cache / "order.json"
     if args.resolve or not op.exists() or len(json.load(open(op))) != n:
-        order = lkh.solve_open(cost, [i for i in range(n) if reg[i] != "US"], cache / "lkh", SOLVE_SECONDS)
+        start = next(i for i in range(n) if stores[i]["name"] == args.start) if args.start else None
+        order = lkh.solve_open(cost, [i for i in range(n) if reg[i] != "US"], cache / "lkh", SOLVE_SECONDS, start)
         json.dump(order, open(op, "w"))
     order = json.load(open(op))
+    assert not args.start or stores[order[0]]["name"] == args.start, "trip starts at --start"
     stops = [stores[i] for i in order]
 
     # Timeline: driving runs split at flights; each run routed in chunks.

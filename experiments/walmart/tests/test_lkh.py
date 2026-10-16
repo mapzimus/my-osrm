@@ -44,3 +44,12 @@ def test_no_ends_never_start_or_finish(tmp_path):
     cost = np.array([[0, 1, 50, 50], [1, 0, 1, 50], [50, 1, 0, 1], [50, 50, 1, 0]], np.float64)
     order = L.solve_open(cost, [0], tmp_path, 5)           # 0 is the cheap end, but forbidden
     assert order[0] != 0 and order[-1] != 0
+
+
+@pytest.mark.skipif(not docker, reason="walmart-lkh image not built")
+def test_start_fixes_the_first_stop(tmp_path):
+    rng = np.random.default_rng(2)
+    cost = rng.integers(10, 1000, (8, 8)).astype(np.float64)
+    order = L.solve_open(cost, [], tmp_path, 10, start=5)
+    best = min(path_cost(cost, p) for p in itertools.permutations(range(8)) if p[0] == 5)
+    assert order[0] == 5 and path_cost(cost, order) == best

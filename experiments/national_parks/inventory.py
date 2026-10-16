@@ -3,7 +3,9 @@
 Parks: NPS Land Resources Division boundaries, UNIT_TYPE 'National Parks' (62), plus New River
 Gorge (filed as 'National Preserves'), minus American Samoa and the Virgin Islands -> 61.
 Stop: one visitor centre per park from the NPS API (developer.nps.gov, DEMO_KEY), the park's
-main one (PICK). Max (2026-10-16): all 61, flying to the ones with no road.
+main one (PICK). Max (2026-10-16): all 61, flying to the ones with no road. The viewer who
+asked (SWFL) wanted it to start or end at the park closest to them: Everglades, by its Gulf
+Coast entrance at Everglades City (1.6 h from Cape Coral), so build.py runs with --start.
 
 Access (data probe, 2026-10-16):
 - road: drive to the visitor centre (Glacier Bay through the Alaska ferry to Gustavus).
@@ -41,7 +43,7 @@ PICK = {
     "CONG": ("cong", "Harry Hampton Visitor Center"), "CRLA": ("crla", "Steel Information Center"),
     "CUVA": ("cuva", "Boston Mill Visitor Center"), "DENA": ("dena", "Denali Visitor Center"),
     "DEVA": ("deva", "Furnace Creek Visitor Center"), "DRTO": ("drto", "Garden Key Visitor Center"),
-    "EVER": ("ever", "Ernest F. Coe Visitor Center"),
+    "EVER": ("ever", "Marjory Stoneman Douglas Visitor Center (Gulf Coast)"),   # SWFL's entrance (start)
     "GAAR": ("gaar", "Anaktuvuk Pass Ranger Station"),     # village inside the park, scheduled flights
     "GLAC": ("glac", "Apgar Visitor Center"), "GLBA": ("glba", "Glacier Bay National Park Visitor Center"),
     "GRBA": ("grba", "Lehman Caves Visitor Center"), "GRCA": ("grca", "Grand Canyon Visitor Center (South Rim)"),
