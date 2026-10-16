@@ -261,6 +261,13 @@ def plan(tour: dict):
     for j, x in enumerate(st[:-1]):
         if x["region"] in ("HI", "PR") and st[j + 1]["region"] == x["region"]:
             pace += list(np.linspace(stop_t[j], stop_t[j + 1], DIVE_WEIGHT + 1)[1:-1])
+    # Leaving an island group: ~1.5 s between its last stop and the flight out. Without it
+    # Hawaii Volcanoes lit 0.3 s before take-off, while the camera was already gliding out
+    # to the open Pacific (Max 2026-10-16: "an issue after the Hawaii leg").
+    for fl in tour["flights"]:
+        if fl["frm"] in ISLAND_AIRPORTS and fl["to"] not in ISLAND_AIRPORTS:
+            last = max(h for h in stop_t if h <= fl["t0"] / 3600)
+            pace += list(np.linspace(last, fl["t0"] / 3600, 9)[1:-1])
     hold_n = int(HOLD_S * FPS)
     core = K.warp(np.sort(pace), total, f1 + 1 - f0 - hold_n * len(holds))
     for j in sorted(holds, key=lambda j: -stop_t[j]):        # back to front: indices stay valid
