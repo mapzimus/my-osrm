@@ -1,7 +1,7 @@
 """Turf Wars: Wawa vs. Sheetz (Max, 2026-10-16). Every store of both chains leaves at once; each road
 lights up in the colour of the closer one by drive time. First frame: both logos and the question;
 the answer (each state's split by people) is the end card (docs/optimal-drives-format.md 6a).
-A chime the first time the two meet in each state.
+Silent (Max, 2026-10-16: "Turf Wars doesn't need sound effects"). Ends zoomed in on the last road reached.
 
 Built on experiments/nfl/video.py (projection, road canvas, camera, timing, render in contiguous
 worker chunks). Data: cache/stores.csv + cache/region.json (stores.py), cache/drivetime.npz
@@ -61,7 +61,7 @@ VIEWS = {"Philly": (-75.25, 39.95, 220), "Altoona": (-78.4, 40.5, 220), "Pennsyl
          "Florida": (-82.0, 28.3, 850), "East": (-80.0, 36.5, 1900), "US": None}
 SHOTS = [(RACE_START, "Philly"), (6.4, "Philly"), (8.0, "Altoona"), (10.4, "Altoona"), (12.2, "Pennsylvania"),
          (16.0, "Pennsylvania"), (17.8, "DC"), (20.6, "DC"), (22.4, "Ohio"), (25.2, "Ohio"), (27.0, "Carolinas"),
-         (29.8, "Carolinas"), (31.6, "Florida"), (34.2, "Florida"), (36.4, "East"), (40.6, "East")]
+         (29.8, "Carolinas"), (31.6, "Florida"), (34.2, "Florida"), (36.4, "East"), (39.4, "East"), (41.4, "Last")]   # Max: zoom in on the last roads
 LABELS = {"Philly": ("Philadelphia", "NJ", "Wawa's first store: Folsom, PA, 1964"),
           "Altoona": ("Altoona", "PA", "Sheetz's first store: Altoona, 1952"),
           "Pennsylvania": ("Pennsylvania", "PA", "of Pennsylvanians, by the closer store"),
@@ -69,7 +69,10 @@ LABELS = {"Philly": ("Philadelphia", "NJ", "Wawa's first store: Folsom, PA, 1964
           "Ohio": ("Ohio", "OH", "of Ohioans, by the closer store"),
           "Carolinas": ("North Carolina", "NC", "of North Carolinians, by the closer store"),
           "Florida": ("Florida", "FL", "330 Wawas, no Sheetz"),
-          "East": ("The East", None, "where each is the shorter drive")}
+          "East": ("The East", None, "where each is the shorter drive"),
+          "Last": ("The last road to reach", None, None)}
+LAST_KM = 300                             # frame width on the last road
+LAST: tuple = ()                           # (x, y, km per px), set by Reel from the data
 
 
 def prepare() -> dict:
@@ -150,6 +153,8 @@ def prepare() -> dict:
 
 
 def view_of(name, b):
+    if name == "Last":
+        return LAST
     if VIEWS[name] is None:
         return N.us_view(K.MAP_TOP, K.MAP_BOTTOM, b)
     lon, lat, width = VIEWS[name]
@@ -187,6 +192,8 @@ class Reel:
     def __init__(self, platform):
         K.use(platform)
         D = self.D = prepare()
+        global LAST
+        LAST = (float(D["mid"][D["last"], 0]), float(D["mid"][D["last"], 1]), LAST_KM / W)
         self.order = np.argsort(D["t"], kind="stable")
         self.ts = D["t"][self.order]
         self.t_fade = float(np.percentile(self.ts, 99.5))
@@ -222,6 +229,8 @@ class Reel:
         x, y, k = view
         cy = y - (H / 2 - K.MAP_CENTER_Y) * k
         thick, floor = N.close_up(view)
+        if view == LAST:                            # the last roads are the dimmest by design: full brightness here
+            thick, floor = 3, 1.0
 
         def in_view(idx):
             m = D["mid"][idx]
@@ -310,6 +319,8 @@ class Reel:
     def label(self, held):
         kick, s, place = LABELS[held]
         D = self.D
+        if held == "Last":
+            return kick, f"near {D['last_town']}", f"{N.hm(float(self.ts[-1]))} from the nearest Wawa or Sheetz"
         if s is None:
             pw, ps = D["people"] / D["people"].sum()
             return kick, f"Wawa {pct(pw)} · Sheetz {pct(ps)}", place
