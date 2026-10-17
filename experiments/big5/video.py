@@ -60,8 +60,13 @@ BLUE = (255, 176, 59)                  # a shop once reached: the house amber (k
 SHOT_S = 3.8                           # road shots: about this long on screen
 GLIDE_S = 1.2                          # transition between shots
 PAD = 0.15                             # margin around a shot's route
-MIN_ROAD_KM, MIN_DIVE_KM = 650, 60     # narrowest frame for a road shot / a highlight zoom
+MIN_ROAD_KM, MIN_DIVE_KM = 650, 80     # narrowest frame for a road shot / a highlight zoom
 CAM_SMOOTH_S = 0.35                    # gaussian sigma on the camera path (centre and log zoom)
+# v4 (Max: zooming "could still use a little work"): every fast zoom and pan in v3 was going into or
+# out of a metro dive, so dives start earlier, hold longer, go less deep, and the zoom speed is capped
+# (it only ever widens the frame, so the car stays in).
+ZOOM_RATE_MAX = 1.3                    # log width per second, at most
+PAN_SMOOTH_S = 0.6                     # gaussian sigma on the camera centre (pans ease more than zooms)
 CAR_MARGIN = 140                       # px: the car stays at least this far inside the map area
 # Metro dives: every metro with 5+ big-5 teams, (lon, lat, radius km) -> its venues. The route
 # visits each in one run (cache/tour.json), so each is one zoomed shot.
@@ -72,7 +77,18 @@ METROS = {"Denver": (-104.95, 39.77, 25), "Los Angeles": (-118.1, 33.95, 50),
           "Dallas–Fort Worth": (-97.0, 32.85, 50), "Miami": (-80.25, 25.95, 35)}
 DIVE_WEIGHT = 14
 DIVE_STOPS = 35                        # pseudo-stops per dive: ~2.3 s on screen each (135 real stops)
-DIVE_TAIL_S = 0.5                      # a dive holds this long past its last venue, logos up
+DIVE_LEAD_S, DIVE_TAIL_S = 0.9, 0.9     # a dive starts this long before its first venue / holds past its last
+# City labels (Max: "every city stopped in can't pop up in a text box like the major ones"): each
+# run of venues in one city gets the dive label's box; suburbs read as their city.
+CITY_OF = {"Commerce City": "Denver", "Sandy": "Salt Lake City", "Glendale": "Phoenix", "Anaheim": "Los Angeles",
+           "Carson": "Los Angeles", "Inglewood": "Los Angeles", "Santa Clara": "Bay Area", "San Jose": "Bay Area",
+           "San Francisco": "Bay Area", "Saint Paul": "Minneapolis–St. Paul", "Minneapolis": "Minneapolis–St. Paul",
+           "Orchard Park": "Buffalo", "Foxborough": "Boston", "Elmont": "New York", "Flushing": "New York",
+           "Brooklyn": "New York", "East Rutherford": "New York", "Harrison": "New York", "Newark": "New York",
+           "Chester": "Philadelphia", "Landover": "Washington", "Frisco": "Dallas–Fort Worth",
+           "Dallas": "Dallas–Fort Worth", "Arlington": "Dallas–Fort Worth", "St. Petersburg": "Tampa",
+           "Sunrise": "Miami", "Miami Gardens": "Miami"}
+CITY_MIN_S = 1.0                       # a city's label stays at least this long
 # Highlights: (lon, lat) of a venue -> callout; hold=True pauses the clock and zooms in.
 HIGHLIGHTS = []
 HOLD_S = 1.6
@@ -307,6 +323,27 @@ def highlights(st: list[dict]) -> list[tuple[int, str, bool]]:
     return out
 
 
+def city_runs(st: list[dict], visit_s: np.ndarray, dives) -> list[tuple[str, float, float]]:
+    """(label, from s, to s): each run of consecutive venues in one city, outside the dives (they
+    have their metro's label). On from the first arrival until the next city's, at least CITY_MIN_S."""
+    in_dive = {j for _, a, b in dives for j in range(a, b + 1)}
+    runs = []
+    for j, x in enumerate(st):
+        if j in in_dive:
+            continue
+        name = CITY_OF.get(x["town"], x["town"])
+        if runs and runs[-1][0] == name and runs[-1][2] == j - 1:
+            runs[-1][2] = j
+        else:
+            runs.append([name, j, j])
+    out = []
+    for k, (name, a, b) in enumerate(runs):
+        t0 = float(visit_s[a])
+        nxt = float(visit_s[runs[k + 1][1]]) if k + 1 < len(runs) else t0 + 3
+        out.append((name, t0, max(t0 + CITY_MIN_S, min(nxt - 0.05, float(visit_s[b]) + 2.0))))
+    return out
+
+
 def plan(tour: dict):
     n = SECONDS * FPS
     coords = np.asarray(tour["coords"])
@@ -400,7 +437,7 @@ def plan(tour: dict):
                             route_cam(fl["t1"] / 3600, out["t0"] / 3600, MIN_DIVE_KM)))
     for name, a, b in dives:
         xs, ys = km([x["lon"] for x in st[a:b + 1]], [x["lat"] for x in st[a:b + 1]])
-        special.append((max(f0, frame_of(stop_t[a]) - int(0.3 * FPS)),
+        special.append((max(f0, frame_of(stop_t[a]) - int(DIVE_LEAD_S * FPS)),
                         min(f1, frame_of(stop_t[b]) + int(DIVE_TAIL_S * FPS)), cam_of(xs, ys, MIN_DIVE_KM)))
     for j in holds:
         (x,), (y,) = km([st[j]["lon"]], [st[j]["lat"]])
@@ -449,8 +486,8 @@ def plan(tour: dict):
             sy[i] = c0[1] + (c1[1] - c0[1]) * k
             slw[i] = math.log(c0[2]) + (math.log(c1[2]) - math.log(c0[2])) * k
 
-    for arr in (sx, sy, slw):                                 # smooth the drive section only
-        arr[f0:f1 + 1] = gaussian_filter1d(arr[f0:f1 + 1], CAM_SMOOTH_S * FPS, mode="nearest")
+    for arr, sig in ((sx, PAN_SMOOTH_S), (sy, PAN_SMOOTH_S), (slw, CAM_SMOOTH_S)):   # the drive section only
+        arr[f0:f1 + 1] = gaussian_filter1d(arr[f0:f1 + 1], sig * FPS, mode="nearest")
     # Keep the car inside the map area: widen (never narrow) the frame where it would leave it,
     # spread over ~1 s so the zoom eases out instead of jumping.
     from scipy.ndimage import maximum_filter1d
@@ -464,6 +501,11 @@ def plan(tour: dict):
     need_l[:f0] = need_l[f1 + 1:] = 0
     need_l = gaussian_filter1d(maximum_filter1d(need_l, FPS), FPS / 4)
     slw = np.maximum(slw, need_l)
+    cap = ZOOM_RATE_MAX / FPS                                 # widen-only rate limit, both directions
+    for i in range(f0 + 1, f1 + 1):
+        slw[i] = max(slw[i], slw[i - 1] - cap)
+    for i in range(f1 - 1, f0 - 1, -1):
+        slw[i] = max(slw[i], slw[i + 1] - cap)
 
     card_bottom = answer_card(Image.new("RGBA", (1, 1)), 0, tour)
     nat_w, nat_a = fit(K.MAP_TOP, K.TEXT_FLOOR)
@@ -486,8 +528,9 @@ def plan(tour: dict):
             cams.append((sx[i], sy[i], math.exp(slw[i])))
     return dict(drive=drive, car=(car_x, car_y), cams=cams, idx=np.searchsorted(t, drive),
                 miles=np.interp(drive, t, dist), total=total, visit_s=visit_s, land_s=land_s, flying=flying,
-                shots=shots, dives=[(nm, max(f0, frame_of(stop_t[a]) - int(0.3 * FPS)),
-                                     min(f1, frame_of(stop_t[b]) + int(DIVE_TAIL_S * FPS))) for nm, a, b in dives])
+                shots=shots, cities=city_runs(st, visit_s, dives),
+                dives=[(nm, max(f0, frame_of(stop_t[a]) - int(DIVE_LEAD_S * FPS)),
+                        min(f1, frame_of(stop_t[b]) + int(DIVE_TAIL_S * FPS)), a, b) for nm, a, b in dives])
 
 
 # --- frame -------------------------------------------------------------------------
@@ -769,11 +812,22 @@ def render(i: int) -> bytes:
         age, dur = s - v0, CALLOUT_S + (HOLD_S if hold else 0)
         x, y = stops_px[j]
         K.callout(od, x / SS, y / SS, text, min(1.0, age / 0.15, (dur - age) / 0.3))
-    for name, a, b in P["dives"]:
-        if a <= i <= b:
-            al = min(1.0, (i - a) / (0.2 * FPS), (b - i) / (0.3 * FPS))
-            box = K.callout_box(W / 2, K.MAP_TOP + 120, name)
-            K.callout(od, W / 2, K.MAP_TOP + 120, name, al, box=box)
+    # Dive label: the metro of the venue just reached; in a dive's lead-in (its first venue still
+    # ahead), that metro. Back-to-back dives overlap (Boston, New York), so this picks by venue.
+    label = None
+    last_j = int(np.flatnonzero(visited).max()) if visited.any() else -1
+    for name, a, b, ja, jb in P["dives"]:
+        if a <= i <= b and (ja <= last_j <= jb or last_j == ja - 1):
+            label = (name, min(1.0, (i - a) / (0.2 * FPS), (b - i) / (0.3 * FPS)))
+            if ja <= last_j <= jb:
+                break
+    if label is None and s <= DRIVE_END:
+        for name, t0, t1 in P["cities"]:
+            if t0 <= s <= t1:
+                label = (name, min(1.0, (s - t0) / 0.15, (t1 - s) / 0.2))
+    if label:
+        box = K.callout_box(W / 2, K.MAP_TOP + 120, label[0])
+        K.callout(od, W / 2, K.MAP_TOP + 120, label[0], label[1], box=box)
     im.alpha_composite(over)
     d = ImageDraw.Draw(im)
 
