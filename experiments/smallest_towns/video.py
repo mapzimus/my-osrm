@@ -1,5 +1,7 @@
 """Optimal Drives: the smallest town in every state (ideas #297 + #296), 52 towns (two ties) in all
-50 states, one trip. Max (2026-10-15): a combined population at the end, no 0s. Adapted from
+50 states, one trip. Max (2026-10-15): a combined population at the end, no 0s.
+v2 (Max, 2026-10-16, before posting): the first frame asks the question under a green town sign of the
+smallest town (Warm River, ID, pop. 1), and the answer card ends it (docs/optimal-drives-format.md 6a). Adapted from
 salem/video.py; sound as the college video: a tick per town, a chime per finished region, a chord.
 
 Run inventory.py, then experiments/walmart/build.py --cache experiments/smallest_towns/cache --max-leg-h 40,
@@ -363,7 +365,7 @@ def plan(tour: dict):
             sy[i] = c0[1] + (c1[1] - c0[1]) * k
             slw[i] = math.log(c0[2]) + (math.log(c1[2]) - math.log(c0[2])) * k
 
-    card_bottom = K.end_card(Image.new("RGBA", (1, 1)), *end_rows(tour), 0)
+    card_bottom = answer_card(Image.new("RGBA", (1, 1)), 0, tour)
     nat_w, nat_a = fit(K.MAP_TOP, K.TEXT_FLOOR)
     end_w, end_a = fit(card_bottom + 20, K.TEXT_FLOOR)
     nat = (ox, oy + (nat_a - H / 2) * nat_w / W, nat_w)
@@ -439,6 +441,92 @@ def simplified(xy: np.ndarray, tol: float) -> np.ndarray:
     if len(xy) < 3:
         return xy
     return np.asarray(LineString(xy).simplify(tol).coords)
+
+
+WIN_RGB, REST_RGB = (0xC4, 0x87, 0x0B), (0x56, 0x5E, 0x6E)     # format doc 6a (validated on the card)
+SIGN_GREEN = (0x00, 0x6B, 0x3F)                                 # MUTCD guide-sign green
+
+
+def town_sign(name: str, pop: int) -> Image.Image:
+    """A green city-limit sign: the smallest town and its population (no brand logo here)."""
+    w, h = 460, 230
+    im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    d.rounded_rectangle((0, 0, w - 1, h - 1), 26, fill=(*SIGN_GREEN, 255))
+    d.rounded_rectangle((10, 10, w - 11, h - 11), 18, outline=(255, 255, 255, 255), width=6)
+    f1 = K.F("hook_sub").font_variant(size=64)
+    while f1.getlength(name.upper()) > w - 60:
+        f1 = f1.font_variant(size=f1.size - 4)
+    d.text((w / 2, 72), name.upper(), font=f1, fill=(255, 255, 255, 255), anchor="mm")
+    d.text((w / 2, 160), f"POP. {pop}", font=K.F("hook_sub").font_variant(size=72), fill=(255, 255, 255, 255), anchor="mm")
+    return im
+
+
+def hook_q(im: Image.Image, alpha: float, tour: dict) -> None:
+    if alpha <= 0:
+        return
+    layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    dd = ImageDraw.Draw(layer)
+    a = int(255 * alpha)
+    lines = ["What's the smallest", "town in your state?"]
+    f0 = K.F("hook")
+    size = f0.size
+    while max(f0.font_variant(size=size).getlength(t) for t in lines) > W - 90:
+        size -= 4
+    f = f0.font_variant(size=size)
+    lh = int(size * 1.12)
+    y0 = K.TEXT_FLOOR - 200 - len(lines) * lh / 2
+    dd.rectangle((0, y0 - 40, W, y0 + len(lines) * lh + 40), fill=(0, 0, 0, int(170 * alpha)))
+    for r, t in enumerate(lines):
+        dd.text((W / 2, y0 + r * lh), t, font=f, fill=(*(K.INK if r == 0 else K.ACCENT), a), anchor="mt")
+    tiny = min(tour["stops"], key=lambda x: x["pop"])
+    sg = town_sign(tiny["name"], tiny["pop"])
+    if alpha < 1:
+        sg.putalpha(sg.getchannel("A").point(lambda v: int(v * alpha)))
+    layer.alpha_composite(sg, ((W - sg.width) // 2, int(y0 - 70 - sg.height)))
+    im.alpha_composite(layer)
+
+
+def answer_card(im: Image.Image, alpha: float, tour: dict) -> int:
+    """The answer: all 50 towns' people combined, big; then the five smallest as bars, the
+    smallest gold and the rest grey; a name and value on every bar."""
+    st = tour["stops"]
+    small = sorted(st, key=lambda x: x["pop"])[:5]
+    top = K.TOP + 150
+    row_h = 56
+    bottom = top + 40 + 250 + 50 + 5 * row_h + 30 + 36 * 2 + 50
+    if alpha <= 0:
+        return bottom
+    layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    d.rounded_rectangle((40, top, W - 40, bottom), 28, fill=K.CARD_FILL, outline=K.BORDER, width=2)
+    y = top + 34
+    d.text((W / 2, y), "THE SMALLEST TOWN IN EVERY STATE", font=K.F("tag"), fill=K.MUTED, anchor="mt")
+    y += 46
+    total = sum(x["pop"] for x in st)
+    d.text((W / 2, y), f"{total:,} people", font=K.F("hook_sub").font_variant(size=96), fill=K.INK, anchor="mt")
+    y += 118
+    d.text((W / 2, y), f"live in all {len(st)} combined  ·  {tour['hours']:.0f} hours to visit them all",
+           font=K.F("small"), fill=K.MUTED, anchor="mt")
+    y = top + 40 + 250
+    d.text((W / 2, y), "The five smallest", font=K.F("label"), fill=K.INK, anchor="mt")
+    y += 50
+    x0, x1 = 400, W - 170
+    biggest = max(x["pop"] for x in small)
+    for k, x in enumerate(small):
+        yy = y + k * row_h
+        d.text((x0 - 16, yy + 26), x["town"], font=K.F("small"), fill=K.INK, anchor="rm")
+        bw = max(14, (x1 - x0) * x["pop"] / max(biggest, 1))
+        d.rounded_rectangle((x0, yy + 11, x0 + bw, yy + 41), 4, fill=WIN_RGB if k == 0 else REST_RGB)
+        d.text((x0 + bw + 14, yy + 26), f"{x['pop']}", font=K.F("small"), fill=K.INK, anchor="lm")
+    y += 5 * row_h + 30
+    for line in ["Census 2020 (smallest town or city in each state, no zeros)", "Routing: OSRM, no traffic"]:
+        d.text((W / 2, y), line, font=K.F("small"), fill=K.MUTED, anchor="mt")
+        y += 36
+    d.text((W / 2, y + 4), f"{K.SERIES}  ·  {K.HANDLE}", font=K.F("label"), fill=K.ACCENT, anchor="mt")
+    layer.putalpha(layer.getchannel("A").point(lambda v: int(v * alpha)))
+    im.alpha_composite(layer)
+    return bottom
 
 
 def render(i: int) -> bytes:
@@ -609,9 +697,8 @@ def render(i: int) -> bytes:
 
     hook_a = 1 - K.smoothstep((s - (K.HOOK - 0.3)) / 0.5)
     total_pop = sum(x["pop"] for x in tour["stops"])
-    K.hook(im, [f"{n_all} towns.", f"{total_pop:,} people."],
-           "The smallest town in every state", hook_a, center_y=K.TEXT_FLOOR - 230)
-    K.end_card(im, *G["end"], card_a)
+    hook_q(im, hook_a, tour)
+    answer_card(im, card_a, tour)
     return im.convert("RGB").tobytes()
 
 
