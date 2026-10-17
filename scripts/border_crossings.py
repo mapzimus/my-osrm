@@ -34,6 +34,9 @@ def meters(a: tuple[float, float], b: tuple[float, float]) -> float:
     return math.hypot((b[0] - a[0]) * 111_320 * math.cos(lat), (b[1] - a[1]) * 110_540)
 
 TAG = "my_osrm:border_crossing"
+# "DE;NL": the ISO codes of the countries meeting at the node, sorted. car.lua
+# charges nothing when both are Schengen (or the Irish Common Travel Area).
+COUNTRIES_TAG = "my_osrm:border_countries"
 STRIP_DEG = 0.03          # land-border search strip (~3 km each side)
 SAME_CROSSING_M = 200     # intersection points closer than this are one crossing
 
@@ -75,15 +78,18 @@ class BoundaryLines(osmium.SimpleHandler):
             self.land_rels.append(self.members[w.id])
 
 
-def national_members(path: str) -> dict[int, set[int]]:
-    """way id -> ids of the admin_level=2 relations it belongs to."""
+def national_members(path: str) -> tuple[dict[int, set[int]], dict[int, str]]:
+    """(way id -> ids of the admin_level=2 relations it belongs to,
+    relation id -> ISO 3166-1 alpha-2 code, "??" when the relation has none)."""
     members: dict[int, set[int]] = defaultdict(set)
+    iso: dict[int, str] = {}
     for r in osmium.FileProcessor(path, osmium.osm.RELATION):
         if r.tags.get("boundary") == "administrative" and r.tags.get("admin_level") == "2":
+            iso[r.id] = r.tags.get("ISO3166-1:alpha2") or r.tags.get("ISO3166-1") or "??"
             for m in r.members:
                 if m.type == "w":
                     members[m.ref].add(r.id)
-    return members
+    return members, iso
 
 
 def has_line_part(geom) -> bool:
@@ -126,16 +132,18 @@ class Crossings(osmium.SimpleHandler):
     some relation's line is crossed an odd number of times, and then once.
     """
 
-    def __init__(self, lines: list[LineString], rels: list[set[int]], ferries_only: bool):
+    def __init__(self, lines: list[LineString], rels: list[set[int]], iso: dict[int, str],
+                 ferries_only: bool):
         super().__init__()
         self.lines = lines
         self.rels = rels
+        self.iso = iso
         self.tree = STRtree(lines)
         self.ferries_only = ferries_only
         self.nodes: dict[int, dict] = {}
 
     def way(self, w):
-        is_ferry = w.tags.get("route") == "ferry"
+        is_ferry = w.tags.get("route") in ("ferry", "shuttle_train")
         if self.ferries_only != is_ferry or (not is_ferry and "highway" not in w.tags):
             return
         try:
@@ -166,11 +174,15 @@ class Crossings(osmium.SimpleHandler):
                     count[r] += 1
             if not any(c % 2 for c in count.values()):
                 return                               # left and came back: domestic
-            hits = hits[:1]                          # one customs stop per boat
-        for p, _ in hits:
+            # One customs stop per boat, between the countries actually changed.
+            hits = [(hits[0][0], {r for r, c in count.items() if c % 2})]
+        for p, rels in hits:
             ref = min(pts, key=lambda t: (t[1] - p.x) ** 2 + (t[2] - p.y) ** 2)[0]
+            # Which countries meet here, so car.lua can wave Schengen through.
+            countries = sorted({self.iso.get(r, "??") for r in rels})
             self.nodes.setdefault(ref, {"way": w.id, "name": w.tags.get("name", ""),
-                                        "ferry": is_ferry, "lon": p.x, "lat": p.y})
+                                        "ferry": is_ferry, "countries": countries,
+                                        "lon": p.x, "lat": p.y})
 
 
 def main(merged: str, out: str, work: str, *raws: str) -> None:
@@ -193,7 +205,7 @@ def main(merged: str, out: str, work: str, *raws: str) -> None:
         parts.append(str(part))
     bounds = wd / "boundaries.osm.pbf"
     run("osmium", "merge", "--overwrite", "-o", str(bounds), *parts)
-    members = national_members(str(bounds))
+    members, iso = national_members(str(bounds))
     lines = BoundaryLines(members)
     lines.apply_file(str(bounds), locations=True)
     print(f"boundary ways: {len(lines.land)} land, {len(lines.sea)} maritime", flush=True)
@@ -205,13 +217,16 @@ def main(merged: str, out: str, work: str, *raws: str) -> None:
     near = wd / "near-borders.osm.pbf"
     run("osmium", "extract", "--overwrite", "-p", str(wd / "border-strip.geojson"),
         "-o", str(near), merged)
-    roads = Crossings(lines.land, lines.land_rels, ferries_only=False)
+    roads = Crossings(lines.land, lines.land_rels, iso, ferries_only=False)
     roads.apply_file(str(near), locations=True)
 
-    # 3. Ferries against every boundary, maritime included (customs on arrival).
+    # 3. Ferries (and Le Shuttle) against every boundary, maritime included
+    #    (customs on arrival).
     ferries_pbf = wd / "ferries.osm.pbf"
-    run("osmium", "tags-filter", "--overwrite", "-o", str(ferries_pbf), merged, "w/route=ferry")
-    ferries = Crossings(lines.land + lines.sea, lines.land_rels + lines.sea_rels, ferries_only=True)
+    run("osmium", "tags-filter", "--overwrite", "-o", str(ferries_pbf), merged,
+        "w/route=ferry,shuttle_train")
+    ferries = Crossings(lines.land + lines.sea, lines.land_rels + lines.sea_rels, iso,
+                        ferries_only=True)
     ferries.apply_file(str(ferries_pbf), locations=True)
 
     marked = {**roads.nodes, **ferries.nodes}
@@ -228,6 +243,7 @@ def main(merged: str, out: str, work: str, *raws: str) -> None:
         for n in osmium.FileProcessor(str(orig), osmium.osm.NODE):
             tags = {k: v for k, v in n.tags}
             tags[TAG] = "yes"
+            tags[COUNTRIES_TAG] = ";".join(marked[n.id]["countries"])
             writer.add_node(n.replace(tags=tags, version=n.version + 1))
     run("osmium", "apply-changes", "--overwrite", "-o", out, merged, str(patch))
 

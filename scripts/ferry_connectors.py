@@ -88,7 +88,9 @@ class Ferries(osmium.SimpleHandler):
 
     def way(self, w) -> None:
         t = w.tags
-        if t.get("route") != "ferry":
+        # shuttle_train: Le Shuttle through the Channel Tunnel. Its terminals
+        # sit off the motorway behind service roads, exactly like a dock.
+        if t.get("route") not in ("ferry", "shuttle_train"):
             return
         if t.get("motor_vehicle") in NO or t.get("motorcar") in NO:
             return
@@ -344,7 +346,7 @@ def main(raw: str, out_dir: str) -> None:
     if not ready(ferries_pbf):
         tmp = ferries_pbf.with_suffix(".part.pbf")
         run("osmium", "tags-filter", "--overwrite", "-F", "pbf", "-f", "pbf",
-            "-o", str(tmp), raw, "w/route=ferry")
+            "-o", str(tmp), raw, "w/route=ferry,shuttle_train")
         tmp.replace(ferries_pbf)
     ferries = Ferries()
     ferries.apply_file(str(ferries_pbf), locations=True)

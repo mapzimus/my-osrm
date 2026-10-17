@@ -24,6 +24,25 @@ at a time during renders.
 - Expected cost: ~2 h VM + ~15 GB download to the PC ≈ $4-5. Delete the VM
   as soon as `fetch` finishes.
 
+## Status (2026-10-17)
+
+Steps 1-9 coded. Decisions taken while coding: far north = 62°N for Europe;
+Le Shuttle kept via `SHUTTLE_FILTER` and treated as a ferry by the connector
+and border scripts; border crossings now carry `my_osrm:border_countries`
+("DE;NL") and `car.lua` charges nothing between two Schengen countries or
+across the Irish Common Travel Area (`FREE_TRAVEL`), 20 min everywhere else
+(UK ↔ France, Balkans, Turkey, Ukraine, Belarus, Russia; same as before for
+the Americas). VM: `e2-highmem-16` (E2 quota in us-east1 is 24 vCPUs).
+Local dry run of the full pipeline on the Denmark extract before the VM.
+
+## Rest of the world (asked 2026-10-17)
+
+Major-road ways: Asia 7.6M, South America 1.7M, Africa 0.8M, Oceania 0.6M;
+one planet engine would be ~25M ways (5× NA, ~25 GB in RAM) and will not
+fit the 14 GB WSL cap. Build them as four more `REGIONS` rows, one VM
+session back-to-back, served one or two at a time. Each needs its own
+report-card trips and a look at its ferry keep-list before trusting it.
+
 ## Code changes, in order
 
 1. **`build_ferry_engine.py`: a `--region na|eu` switch.** `NAME`, `OUT`,

@@ -20,6 +20,8 @@ from pathlib import Path
 METERS_PER_MILE = 1609.344
 ROUTES_FILE = Path(__file__).with_name("routes.toml")
 UNREACHABLE_SNAP_M = 2_000
+# Which case["needs"] values each engine is scored on.
+COVERS = {"us": {"us"}, "na": {"us", "na"}, "eu": {"eu"}}
 
 
 class NoRoute(Exception):
@@ -59,11 +61,12 @@ def grade(case: dict, miles: float, hours: float, used_ferry: bool, engine: str,
     """Return "PASS", "FAIL", or "SKIP" for one case.
 
     case["max_miles"] is the shortcut threshold; case["kind"] is
-    "ferry" | "border" | "control" | "unreachable"; case["needs"] is "us" | "na".
+    "ferry" | "border" | "control" | "unreachable"; case["needs"] is "us" | "na" | "eu".
     """
-    # A US-only engine can't enter Canada by design; grading it on that
-    # would mix "broken" with "out of scope". Still printed, just not scored.
-    if case["needs"] == "na" and engine != "na":
+    # A US-only engine can't enter Canada by design, and the Europe engine
+    # has no America at all; grading those would mix "broken" with "out of
+    # scope". Still printed, just not scored.
+    if case["needs"] not in COVERS[engine]:
         return "SKIP"
     # Unreachable by car: a route that only gets there by snapping the
     # destination to a road kilometers away doesn't count as reaching it.
@@ -90,7 +93,7 @@ def grade(case: dict, miles: float, hours: float, used_ferry: bool, engine: str,
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--url", default="http://127.0.0.1:5000")
-    ap.add_argument("--engine", choices=["us", "na"], default="us")
+    ap.add_argument("--engine", choices=sorted(COVERS), default="us")
     args = ap.parse_args()
 
     cases = tomllib.loads(ROUTES_FILE.read_text())["case"]

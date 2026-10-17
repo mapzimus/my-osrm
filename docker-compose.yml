@@ -35,6 +35,20 @@ services:
     ports:
       - "127.0.0.1:5002:5000"
 
+  # Europe: Iceland to the Urals + Turkey, major roads, car ferries, Le
+  # Shuttle; no customs stop inside Schengen (docs/europe-plan.md). Built on
+  # the cloud VM (scripts/cloud_build.ps1 -Region eu). ~8 GB in RAM: run it
+  # alongside na-ferry only when nothing else is rendering.
+  eu-ferry:
+    <<: *osrm
+    container_name: my-osrm-eu-ferry
+    command: osrm-routed --algorithm mld --max-table-size 8000 /data/eu-ferry.osrm
+    volumes:
+      - ./data/osrm-eu-ferry:/data:ro
+    ports:
+      - "127.0.0.1:5004:5000"
+    profiles: ["eu"]
+
   # US major roads only (no Canada, no ferries). Report card 2/6.
   us-major:
     <<: *osrm

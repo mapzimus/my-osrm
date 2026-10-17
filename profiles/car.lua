@@ -392,6 +392,27 @@ function setup()
   }
 end
 
+-- my-osrm: no customs stop between two Schengen countries, or across the
+-- Irish Common Travel Area. scripts/border_crossings.py writes the ISO codes
+-- of the countries meeting at a crossing as my_osrm:border_countries="DE;NL".
+-- Anything unknown ("??", a single code) is charged: the safe default.
+local FREE_TRAVEL = Set {
+  'AT', 'BE', 'BG', 'HR', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IS',
+  'IT', 'LV', 'LI', 'LT', 'LU', 'MT', 'NL', 'NO', 'PL', 'PT', 'RO', 'SK', 'SI',
+  'ES', 'SE', 'CH', 'MC', 'SM', 'VA'
+}
+
+local function free_border(countries)
+  if not countries or countries == '' then return false end
+  if countries == 'GB;IE' then return true end
+  local n = 0
+  for code in countries:gmatch('[^;]+') do
+    n = n + 1
+    if not FREE_TRAVEL[code] then return false end
+  end
+  return n >= 2
+end
+
 function process_node(profile, node, result, relations)
   -- parse access and barrier tags
   local access = find_access_tag(node, profile.access_tags_hierarchy)
@@ -445,8 +466,10 @@ function process_node(profile, node, result, relations)
     end
   end
 
-  -- my-osrm: one customs stop per border crossing, either direction.
-  if node:get_value_by_key("my_osrm:border_crossing") == "yes" then
+  -- my-osrm: one customs stop per border crossing, either direction
+  -- (none inside Schengen: free_border above).
+  if node:get_value_by_key("my_osrm:border_crossing") == "yes"
+     and not free_border(node:get_value_by_key("my_osrm:border_countries")) then
     obstacle_map:add(node, Obstacle.new(obstacle_type.gate,
                                         obstacle_direction.both, profile.border_crossing, 0))
   end

@@ -32,6 +32,7 @@ from pathlib import Path
 import osmium
 
 YES = {"yes", "designated", "permissive"}
+NO = {"no", "private"}
 # Whole-word name/operator patterns for boats that never take a private car:
 # rail and freight lines, plus sightseeing ("Canada-USA Border Cruise" on
 # Waterton Lake is tagged nothing at all). Word boundaries matter: a plain
@@ -66,7 +67,7 @@ KEEP_RE = re.compile(
     r"color line|fjord line|tallink|silja line|viking line|finnlines|eckerö lin\w*|"
     r"wasaline|scandlines|tt-line|polferries|unity line|molslinjen|bornholmslinjen|"
     r"forsea|destination gotland|smyril line|norled|fjord1|torghatten|boreal sjø|"
-    r"bastø fosen|fosennamsos|färjerederiet|ventrafiken|samsø rederi|færgen|"
+    r"bastø fosen|fosennamsos|färjerederiet|ventrafiken|samsø rederi|"
     # Mediterranean, Adriatic, Aegean
     r"baleària|balearia|trasmed\w*|transmediterr\w*|naviera armas|fred\. olsen|"
     r"corsica ferries|moby|tirrenia|toremar|siremar|caronte|gnv|grandi navi veloci|"
@@ -87,6 +88,11 @@ def is_car_ferry(tags) -> tuple[bool, str]:
     cargo = t.get("cargo", "")
     if any(t.get(k) in YES for k in ("motor_vehicle", "motorcar", "vehicle")) or "vehicle" in cargo:
         return True, "cars allowed"
+    # An explicit no beats the operator keep-list: Ventrafiken's Copenhagen -
+    # Hven boat is motor_vehicle=no while its Landskrona - Ven run takes cars.
+    # (car.lua refuses these anyway; dropping them keeps the report honest.)
+    if any(t.get(k) in NO for k in ("motor_vehicle", "motorcar")):
+        return False, "cars forbidden"
     note = f"{t.get('note', '')} {t.get('description', '')}".lower()
     if NO_CARS_RE.search(note):
         return False, "note says no cars"

@@ -96,6 +96,11 @@ MAJOR_FILTER = (
     "w/highway=motorway,trunk,primary,secondary,tertiary,"
     "motorway_link,trunk_link,primary_link,secondary_link,tertiary_link"
 )
+# Cars cross the Channel Tunnel on Le Shuttle, which OSM maps as
+# route=shuttle_train (no highway tag), so the major filter alone dropped it
+# and London -> Paris went by ferry. car.lua has a speed for it; ferry_connectors
+# ties its terminals to the network like docks. None in North America.
+SHUTTLE_FILTER = "w/route=shuttle_train"
 # Turn restrictions are RELATIONS; a ways-only filter drops every one of them
 # (the Oct 2026 engine had 0 relations: no no-left-turn anywhere). osmium
 # keeps the relation plus its member ways and nodes.
@@ -152,7 +157,7 @@ def build(region: Region) -> Path:
         (DATA / major).parent.mkdir(parents=True, exist_ok=True)
         stage(DATA / major, f"{cc}: major-roads filter", TOOLS_IMAGE,
               "osmium", "tags-filter", "--overwrite", "-o", f"/data/{major}", f"/data/{raw}",
-              MAJOR_FILTER, RESTRICTIONS, inputs=(DATA / raw,))
+              MAJOR_FILTER, SHUTTLE_FILTER, RESTRICTIONS, inputs=(DATA / raw,))
         connectors = f"build/{cc}/ferry-connectors.osm.pbf"
         stage(DATA / connectors, f"{cc}: ferry connectors", TOOLS_IMAGE,
               "python", "/scripts/ferry_connectors.py", f"/data/{raw}", f"/data/build/{cc}",

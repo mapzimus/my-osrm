@@ -412,3 +412,99 @@ from = [-123.3656, 48.4284]
 to = [-123.1207, 49.2827]
 max_miles = 75
 note = "Regression: Swartz Bay berth approaches sat on a stranded major fragment"
+
+# ---------------------------------------------------------------------------
+# Europe (needs = "eu": only the eu-ferry engine is scored on these).
+# Bands are loose, from published drive times; the question is still "did it
+# take the shortcut, and is the clock roughly right".
+
+[[case]]
+name = "London -> Paris (Channel Tunnel, Le Shuttle)"
+kind = "ferry"
+needs = "eu"
+from = [-0.1276, 51.5072]    # Trafalgar Square
+to = [2.3522, 48.8566]       # Hotel de Ville
+max_miles = 320              # via tunnel ~290 mi; the only land-free alternative is a ferry
+hours = [5.0, 8.0]           # ~4.5 h driving + 35-min shuttle + UK/FR border checks
+note = "route=shuttle_train kept by SHUTTLE_FILTER; mode reads as ferry"
+
+[[case]]
+name = "Dover -> Calais (Channel ferry)"
+kind = "ferry"
+needs = "eu"
+from = [1.3134, 51.1279]     # Dover seafront
+to = [1.8587, 50.9513]       # Calais centre
+max_miles = 60               # ferry ~30 mi; via the tunnel it is ~70 mi of road
+exclude = "motorway"         # Le Shuttle wins on time; prove the boat exists
+hours = [1.5, 4.0]           # 90-min crossing + boarding + border
+note = "P&O / DFDS / Irish Ferries, ~90 min"
+
+[[case]]
+name = "Copenhagen -> Malmo (Oresund bridge)"
+kind = "border"
+needs = "eu"
+from = [12.5683, 55.6761]
+to = [13.0038, 55.6050]
+max_miles = 35               # bridge ~27 mi
+hours = [0.4, 1.2]           # Schengen: no customs stop (DK;SE)
+note = "Oresund fixed link, toll bridge + tunnel"
+
+[[case]]
+name = "Oslo -> Bergen (fjord road, Hardangervidda)"
+kind = "control"
+needs = "eu"
+from = [10.7522, 59.9139]
+to = [5.3221, 60.3913]
+max_miles = 330              # E16/Rv7 ~290-310 mi
+hours = [6.0, 9.0]
+note = "all-land route exists; ferries only on the coast variants"
+
+[[case]]
+name = "Piraeus -> Heraklion, Crete (overnight ferry)"
+kind = "ferry"
+needs = "eu"
+from = [23.6470, 37.9429]
+to = [25.1442, 35.3387]
+max_miles = 260              # ferry ~200 mi; no road alternative at all
+hours = [7.0, 12.0]          # 8-9 h crossing + boarding
+note = "Minoan Lines / Anek-Superfast; island: without the ferry it is unreachable"
+
+[[case]]
+name = "Rome -> Palermo (Messina strait ferry)"
+kind = "ferry"
+needs = "eu"
+from = [12.4964, 41.9028]
+to = [13.3615, 38.1157]
+max_miles = 600              # via Villa San Giovanni ~580 mi
+hours = [8.0, 13.0]          # ~7.5 h road + 20-min strait crossing + boarding
+note = "Caronte & Tourist / RFI across the Strait of Messina"
+
+[[case]]
+name = "Berlin -> Munich (autobahn control)"
+kind = "control"
+needs = "eu"
+from = [13.4050, 52.5200]
+to = [11.5820, 48.1351]
+max_miles = 400              # A9 ~365 mi
+hours = [5.0, 7.5]
+note = "no border, no ferry; catches a profile that is too slow or too fast"
+
+[[case]]
+name = "Warsaw -> Vilnius (Schengen land border)"
+kind = "border"
+needs = "eu"
+from = [21.0122, 52.2297]
+to = [25.2797, 54.6872]
+max_miles = 320              # Via Baltica ~290 mi
+hours = [5.0, 8.0]           # PL;LT: no customs stop
+note = "Budzisko crossing on the E67"
+
+[[case]]
+name = "Dublin -> Holyhead (Irish Sea ferry)"
+kind = "ferry"
+needs = "eu"
+from = [-6.2603, 53.3498]
+to = [-4.6330, 53.3090]
+max_miles = 90               # ferry ~70 mi; no road alternative
+hours = [3.0, 6.0]           # 3h15 crossing + boarding + IE/GB border
+note = "Irish Ferries / Stena Line"
