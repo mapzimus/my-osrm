@@ -88,7 +88,10 @@ CITY_OF = {"Commerce City": "Denver", "Sandy": "Salt Lake City", "Glendale": "Ph
            "Chester": "Philadelphia", "Landover": "Washington", "Frisco": "Dallas–Fort Worth",
            "Dallas": "Dallas–Fort Worth", "Arlington": "Dallas–Fort Worth", "St. Petersburg": "Tampa",
            "Sunrise": "Miami", "Miami Gardens": "Miami"}
-CITY_MIN_S = 1.0                       # a city's label stays at least this long
+# A city's box sits under its first venue on the map for CITY_LABEL_S from arrival (not in the one
+# top slot the metros use: cities close in time, Austin then San Antonio, got 0.5 s there).
+CITY_LABEL_S = 1.4
+CITY_STOPS, CITY_DWELL_H = 16, 0.4     # pseudo-stops slowing the clock around each city's venues (h)
 # Highlights: (lon, lat) of a venue -> callout; hold=True pauses the clock and zooms in.
 HIGHLIGHTS = []
 HOLD_S = 1.6
@@ -323,9 +326,9 @@ def highlights(st: list[dict]) -> list[tuple[int, str, bool]]:
     return out
 
 
-def city_runs(st: list[dict], visit_s: np.ndarray, dives) -> list[tuple[str, float, float]]:
-    """(label, from s, to s): each run of consecutive venues in one city, outside the dives (they
-    have their metro's label). On from the first arrival until the next city's, at least CITY_MIN_S."""
+def city_index_runs(st: list[dict], dives) -> list[list]:
+    """[label, first, last]: each run of consecutive venues in one city, outside the dives (they
+    have their metro's label)."""
     in_dive = {j for _, a, b in dives for j in range(a, b + 1)}
     runs = []
     for j, x in enumerate(st):
@@ -336,12 +339,12 @@ def city_runs(st: list[dict], visit_s: np.ndarray, dives) -> list[tuple[str, flo
             runs[-1][2] = j
         else:
             runs.append([name, j, j])
-    out = []
-    for k, (name, a, b) in enumerate(runs):
-        t0 = float(visit_s[a])
-        nxt = float(visit_s[runs[k + 1][1]]) if k + 1 < len(runs) else t0 + 3
-        out.append((name, t0, max(t0 + CITY_MIN_S, min(nxt - 0.05, float(visit_s[b]) + 2.0))))
-    return out
+    return runs
+
+
+def city_runs(st: list[dict], visit_s: np.ndarray, dives) -> list[tuple[str, float, int]]:
+    """(label, from s, venue index): each city's box, on from its first arrival."""
+    return [(name, float(visit_s[a]), a) for name, a, b in city_index_runs(st, dives)]
 
 
 def plan(tour: dict):
@@ -368,6 +371,8 @@ def plan(tour: dict):
         pace += list(np.linspace(fl["t0"], fl["t1"], k + 2)[1:-1] / 3600)
     for _, a, b in dives:
         pace += list(np.linspace(stop_t[a], stop_t[b], DIVE_STOPS + 2)[1:-1])
+    for _, a, b in city_index_runs(st, dives):                 # a dwell in every city, its label readable
+        pace += list(np.linspace(stop_t[a] - CITY_DWELL_H, stop_t[b] + CITY_DWELL_H, CITY_STOPS))
     for j, x in enumerate(st[:-1]):
         if x["region"] in ("HI", "PR") and st[j + 1]["region"] == x["region"]:
             pace += list(np.linspace(stop_t[j], stop_t[j + 1], DIVE_WEIGHT + 1)[1:-1])
@@ -647,6 +652,8 @@ def logo_layer(im: Image.Image, venues: list[tuple[int, float, float]], s: float
         if age < LOGO_POP_S:
             pops.append((age, j, x, y))
             continue
+        if y < K.MAP_TOP + base / 2:                             # under the stats bar: no marker
+            continue
         bw, bh = n * base + (n - 1) * gap, base
         spot = None
         for ox, oy in OFFSETS:
@@ -812,19 +819,30 @@ def render(i: int) -> bytes:
         age, dur = s - v0, CALLOUT_S + (HOLD_S if hold else 0)
         x, y = stops_px[j]
         K.callout(od, x / SS, y / SS, text, min(1.0, age / 0.15, (dur - age) / 0.3))
-    # Dive label: the metro of the venue just reached; in a dive's lead-in (its first venue still
-    # ahead), that metro. Back-to-back dives overlap (Boston, New York), so this picks by venue.
+    # Label: the metro of the venue just reached (inside a dive), else the city just stopped in.
+    # Both start on arrival (Max: "All of them seem to start a little early"; Baltimore must
+    # never read as Washington), so the camera's lead-in into a dive carries no label.
     label = None
     last_j = int(np.flatnonzero(visited).max()) if visited.any() else -1
     for name, a, b, ja, jb in P["dives"]:
-        if a <= i <= b and (ja <= last_j <= jb or last_j == ja - 1):
-            label = (name, min(1.0, (i - a) / (0.2 * FPS), (b - i) / (0.3 * FPS)))
-            if ja <= last_j <= jb:
-                break
-    if label is None and s <= DRIVE_END:
-        for name, t0, t1 in P["cities"]:
-            if t0 <= s <= t1:
-                label = (name, min(1.0, (s - t0) / 0.15, (t1 - s) / 0.2))
+        if a <= i <= b and ja <= last_j <= jb:
+            age = s - visit_s[ja]
+            label = (name, min(1.0, age / 0.15, (b - i) / (0.3 * FPS)))
+    if s <= DRIVE_END:                                       # city boxes, under the venue
+        boxes = []
+        for name, t0, j in P["cities"]:
+            age = s - t0
+            if 0 <= age <= CITY_LABEL_S:
+                x, y = stops_px[j][0] / SS, stops_px[j][1] / SS
+                tw = K.F("callout").getlength(name)
+                bx = min(max(x - tw / 2, 30), W - K.RIGHT_RAIL - tw - 10)
+                by = min(max(y + 40, K.MAP_TOP + 20), K.MAP_BOTTOM - 60)
+                for l, t, r, b in boxes:                     # two at once: stack, don't overlap
+                    if bx - 14 < r and bx + tw + 14 > l and by - 8 < b and by + 46 > t:
+                        by = b + 14
+                box = (bx - 14, by - 8, bx + tw + 14, by + 46)
+                boxes.append(box)
+                K.callout(od, x, y, name, min(1.0, age / 0.15, (CITY_LABEL_S - age) / 0.25), box=box)
     if label:
         box = K.callout_box(W / 2, K.MAP_TOP + 120, label[0])
         K.callout(od, W / 2, K.MAP_TOP + 120, label[0], label[1], box=box)
