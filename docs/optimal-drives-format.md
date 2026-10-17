@@ -31,7 +31,7 @@ flights and pacing: `experiments/chickfila/` (every Chick-fil-A, 2026-10-17).
 | | |
 |---|---|
 | Main format | 1080 × 1920 (9:16), 30 fps, **one export per platform** |
-| Platforms | `tiktok` and `reels` (Instagram); `K.use(platform)` sets the safe zones. **YouTube Shorts** is the Reels file sped to 58 s: `ffmpeg -i <slug>_reels.mp4 -vf setpts=PTS*58/65 -af atempo=65/58 -c:v h264_nvenc -cq 23 <slug>_shorts.mp4` |
+| Platforms | `tiktok` and `reels` (Instagram); `K.use(platform)` sets the safe zones. **YouTube Shorts** is the TikTok file sped to 58 s: `ffmpeg -i <slug>_tiktok.mp4 -filter_complex "[0:v]setpts=PTS*58/65[v];[0:a]atempo=65/58[a]" -map "[v]" -map "[a]" -c:v h264_nvenc -cq 23 -c:a aac -b:a 160k <slug>_shorts.mp4` |
 | Length | **65 s** (Max, 2026-10-13: "They should be 65s") |
 | Encode | H.264 on the GPU (`h264_nvenc` p7, CQ 19), `yuv420p`, `+faststart`, AAC 192 kb/s; `-Cpu` = libx264 CRF 18 (§14) |
 | Output | `experiments/<slug>/out/<slug>_<platform>.mp4` |
