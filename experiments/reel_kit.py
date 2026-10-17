@@ -292,6 +292,109 @@ def warp(stop_t: np.ndarray, total: float, n_frames: int, clock_share: float = 0
     return np.interp(np.linspace(0, 1, n_frames), progress, grid)
 
 
+def hold_clock(core: np.ndarray, waits: list[tuple[float, int]]) -> np.ndarray:
+    """Insert held frames into warp()'s output: each (drive hours, frames) stops the clock at
+    that time for that many frames. Ask warp() for that many fewer frames first."""
+    for h, w in sorted(waits, key=lambda x: -x[0]):           # back to front: indices stay valid
+        k = int(np.searchsorted(core, h))
+        core = np.concatenate([core[:k], np.full(w, h), core[k:]])
+    return core
+
+
+# --- camera (doc §6; Max's calls on big5 v1-v5 and Chick-fil-A, 2026-10-17) ------------
+# Shots, not tracking: the frame holds on a stretch of route for about SHOT_S, then glides to
+# the next. Smoothed, never faster than ZOOM_RATE_MAX, and the car never leaves the frame.
+SHOT_S = 3.8                     # a road shot is on screen about this long
+GLIDE_S = 1.2                    # the move between two shots
+SHOT_PAD = 0.15                  # margin around a shot's route
+MIN_ROAD_KM, MIN_DIVE_KM = 650, 90   # narrowest frame for a road shot / a metro dive (km wide)
+CAM_SMOOTH_S, PAN_SMOOTH_S = 0.35, 0.6   # gaussian sigma on the zoom / on the centre
+ZOOM_RATE_MAX = 1.3              # log width per second, widening only; 2.6 with island flights
+CAR_MARGIN = 140                 # px: the car stays at least this far inside the map area
+
+# Flights (doc §8; Max, 2026-10-17: "the route starts going before the camera arrives").
+# Pseudo-stops in warp() buy screen time; the clock holds at takeoff and landing so the
+# camera is set before anything moves; the flight shot starts before the takeoff hold and
+# the island shot before touchdown.
+FLIGHT_STOPS, HOP_STOPS = 700, 260   # a long flight ~2.5 s on screen, an island hop ~1 s
+TAKEOFF_HOLD_S, LANDING_HOLD_S, HOP_HOLD_S = 0.6, 1.5, 0.35
+FLIGHT_LEAD_S, ISLAND_LEAD_S = 0.9, 0.6
+
+
+def fit_cam(xs, ys, min_w: float, pad: float = SHOT_PAD) -> tuple[float, float, float]:
+    """Camera (centre x, centre y, width; km) that fits these points in the map area,
+    centred between the HUD and the "now" band, at least min_w wide."""
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    w = max((x1 - x0) * (1 + 2 * pad), (y1 - y0) * (1 + 2 * pad) * W / (MAP_BOTTOM - MAP_TOP), min_w)
+    return (x0 + x1) / 2, (y0 + y1) / 2 + (MAP_CENTER_Y - H / 2) * w / W, w
+
+
+def lay_shots(special: list[tuple[int, int, tuple]], f0: int, f1: int, road_cam) -> list[tuple[int, int, tuple]]:
+    """Shot list (frame a, frame b, camera) for the drive section f0..f1. `special` are fixed
+    shots (flights, dives, holds); road shots of about SHOT_S fill the gaps, each framed by
+    road_cam(frame a, frame b)."""
+    shots, i = [], f0
+
+    def fill(i: int, a: int) -> int:
+        if a - i > int(0.4 * FPS):                            # a tiny gap: the next shot starts early
+            k = max(1, round((a - i) / (SHOT_S * FPS)))
+            for q in range(k):
+                e = a if q == k - 1 else i + (a - i) // (k - q)
+                shots.append((i, e, road_cam(i, e)))
+                i = e
+        return i
+
+    for a, b, cam in sorted(special):
+        a = max(a, i)
+        if b <= a:
+            continue
+        i = fill(i, a)
+        shots.append((i, b, cam))
+        i = b
+    i = fill(i, f1)
+    if i < f1:
+        shots[-1] = (shots[-1][0], f1, shots[-1][2])
+    return shots
+
+
+def camera_path(shots, n: int, f0: int, f1: int, car_x: np.ndarray, car_y: np.ndarray,
+                free: np.ndarray | None = None, zoom_rate: float = ZOOM_RATE_MAX):
+    """Per-frame camera (x, y, log width) for the drive section: hold each shot, glide across
+    each cut (smoothstep, log zoom), gaussian-smooth, widen (never narrow) wherever the car
+    would come within CAR_MARGIN of the map edge, then cap how fast the frame narrows or
+    widens. `free` marks frames where the car is not chased (a plane on its arc)."""
+    from scipy.ndimage import gaussian_filter1d, maximum_filter1d
+    sx, sy, slw = np.zeros(n), np.zeros(n), np.zeros(n)
+    for a, b, (x, y, w) in shots:
+        sx[a:b + 1], sy[a:b + 1], slw[a:b + 1] = x, y, math.log(max(w, 1))
+    glide = int(GLIDE_S * FPS)
+    for (a0, b0, c0), (a1, b1, c1) in zip(shots, shots[1:]):
+        g = min(glide, (b0 - a0) // 2, (b1 - a1) // 2)
+        for i in range(a1 - g, a1 + g + 1):
+            k = smoothstep((i - (a1 - g)) / max(1, 2 * g))
+            sx[i] = c0[0] + (c1[0] - c0[0]) * k
+            sy[i] = c0[1] + (c1[1] - c0[1]) * k
+            slw[i] = math.log(c0[2]) + (math.log(c1[2]) - math.log(c0[2])) * k
+    for arr, sig in ((sx, PAN_SMOOTH_S), (sy, PAN_SMOOTH_S), (slw, CAM_SMOOTH_S)):
+        arr[f0:f1 + 1] = gaussian_filter1d(arr[f0:f1 + 1], sig * FPS, mode="nearest")
+    ex, ey = car_x - sx, car_y - sy
+    up = max(1.0, H / 2 - MAP_TOP - CAR_MARGIN)
+    down = max(1.0, MAP_BOTTOM - CAR_MARGIN - H / 2)
+    need = np.maximum.reduce([np.abs(ex) * W / (W / 2 - CAR_MARGIN), np.where(ey > 0, ey * W / up, 0),
+                              np.where(ey < 0, -ey * W / down, 0), np.ones(n)])
+    need_l = np.log(need)
+    need_l[:f0] = need_l[f1 + 1:] = 0
+    if free is not None:
+        need_l[free] = 0
+    slw = np.maximum(slw, gaussian_filter1d(maximum_filter1d(need_l, FPS), FPS / 4))
+    cap = zoom_rate / FPS
+    for i in range(f0 + 1, f1 + 1):
+        slw[i] = max(slw[i], slw[i - 1] - cap)
+    for i in range(f1 - 1, f0 - 1, -1):
+        slw[i] = max(slw[i], slw[i + 1] - cap)
+    return sx, sy, slw
+
+
 # --- sound ------------------------------------------------------------------------------
 
 def soundtrack(path: Path, seconds: float, ticks: list[float], chimes: list[float],

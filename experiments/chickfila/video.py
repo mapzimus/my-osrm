@@ -27,7 +27,6 @@ import cv2
 import numpy as np
 import shapefile
 from PIL import Image, ImageDraw
-from scipy.ndimage import gaussian_filter1d
 from shapely.geometry import box, shape
 
 HERE = Path(__file__).resolve().parent
@@ -47,22 +46,10 @@ CARD_IN = DRIVE_END + K.PULL_OUT - 0.4
 CLIP = (-162.0, 15.0, -60.0, 56.0)               # Hawaii, the lower 48, Puerto Rico, Ontario and Alberta
 DAY_DRIVE_H = 10                       # end card: days at 10 h of driving a day
 
-FLIGHT_STOPS, HOP_STOPS = 700, 260     # pseudo-stops: a long flight ~2.5 s on screen, an island hop ~1 s
-# Takeoff and landing: the clock waits so the camera is set before anything moves. The flight
-# shot starts FLIGHT_LEAD_S before the takeoff hold (the camera glides out while the car is still
-# on its way to the airport); island hops wait less.
-TAKEOFF_HOLD_S, LANDING_HOLD_S, HOP_HOLD_S, FLIGHT_LEAD_S = 0.6, 1.5, 0.35, 0.9
-ISLAND_LEAD_S = 0.6                    # the island shot starts this long before touchdown
 BLUE = (255, 176, 59)                  # a shop once reached: the house amber (kept the name from walmart/)
-# Camera from big5/ v4 (Max's calls there): road shots that hold, eased zooms, the car never
-# outruns the frame. The zoom cap is higher than big5's: the islands are 4,000 km out.
-SHOT_S = 3.8                           # road shots: about this long on screen
-GLIDE_S = 1.2                          # transition between shots
-PAD = 0.15                             # margin around a shot's route
-MIN_ROAD_KM, MIN_DIVE_KM = 650, 90     # narrowest frame for a road shot / a metro dive
-CAM_SMOOTH_S, PAN_SMOOTH_S = 0.35, 0.6  # gaussian sigma on the zoom / on the camera centre
-ZOOM_RATE_MAX = 2.6                    # log width per second, at most (widen-only)
-CAR_MARGIN = 140                       # px: the car stays at least this far inside the map area
+# Camera and flight pacing: the kit's (reel_kit.py camera section; this video is the reference).
+# The zoom cap is twice the default: the islands are 4,000 km out.
+ZOOM_RATE_MAX = 2.6
 # Metro dives: the longest run of consecutive restaurants within r km of the centre.
 METROS = {"Atlanta": (-84.4, 33.75, 50), "Houston": (-95.4, 29.8, 55), "Dallas–Fort Worth": (-97.0, 32.8, 60)}
 DIVE_WEIGHT = 40                       # Hawaii and Puerto Rico restaurants: x per restaurant
@@ -233,12 +220,12 @@ def plan(tour: dict):
     dives = metro_runs(st)
     holds = [j for j, _, hold in highlights(st) if hold]
 
-    # Pacing: flights get FLIGHT_STOPS pseudo-stops so the plane is on screen
+    # Pacing: flights get K.FLIGHT_STOPS pseudo-stops so the plane is on screen
     # long enough to read; metro dives get DIVE_WEIGHT x per store. Holds pause
     # the clock on a highlight. None of this is counted, it only shapes the pace.
     pace = list(stop_t)
     for fl in tour["flights"]:
-        k = HOP_STOPS if fl["frm"] in ISLAND_AIRPORTS and fl["to"] in ISLAND_AIRPORTS else FLIGHT_STOPS
+        k = K.HOP_STOPS if fl["frm"] in ISLAND_AIRPORTS and fl["to"] in ISLAND_AIRPORTS else K.FLIGHT_STOPS
         pace += list(np.linspace(fl["t0"], fl["t1"], k + 2)[1:-1] / 3600)
     for _, a, b in dives:
         pace += list(np.linspace(stop_t[a], stop_t[b], DIVE_STOPS + 2)[1:-1])
@@ -249,12 +236,9 @@ def plan(tour: dict):
     waits = [(stop_t[j], hold_n) for j in holds]              # (drive time h, frames the clock stands still)
     for fl in tour["flights"]:
         hop = fl["frm"] in ISLAND_AIRPORTS and fl["to"] in ISLAND_AIRPORTS
-        waits.append((fl["t0"] / 3600, int((HOP_HOLD_S if hop else TAKEOFF_HOLD_S) * FPS)))
-        waits.append((fl["t1"] / 3600, int((HOP_HOLD_S if hop else LANDING_HOLD_S) * FPS)))
-    core = K.warp(np.sort(pace), total, f1 + 1 - f0 - sum(w for _, w in waits))
-    for h, w in sorted(waits, key=lambda x: -x[0]):           # back to front: indices stay valid
-        k = int(np.searchsorted(core, h))
-        core = np.concatenate([core[:k], np.full(w, h), core[k:]])
+        waits.append((fl["t0"] / 3600, int((K.HOP_HOLD_S if hop else K.TAKEOFF_HOLD_S) * FPS)))
+        waits.append((fl["t1"] / 3600, int((K.HOP_HOLD_S if hop else K.LANDING_HOLD_S) * FPS)))
+    core = K.hold_clock(K.warp(np.sort(pace), total, f1 + 1 - f0 - sum(w for _, w in waits)), waits)
     drive = np.zeros(n)
     drive[f0:f1 + 1] = core
     drive[f1 + 1:] = total
@@ -280,16 +264,11 @@ def plan(tour: dict):
     def frame_of(h: float) -> int:                            # first frame at drive time h
         return int(np.clip(np.searchsorted(drive, h - 1e-9), f0, f1))
 
-    def cam_of(xs, ys, min_w: float) -> tuple[float, float, float]:
-        x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
-        w = max((x1 - x0) * (1 + 2 * PAD), (y1 - y0) * (1 + 2 * PAD) * W / (K.MAP_BOTTOM - K.MAP_TOP), min_w)
-        return (x0 + x1) / 2, (y0 + y1) / 2 + (K.MAP_CENTER_Y - H / 2) * w / W, w
-
     def route_cam(h0: float, h1: float, min_w: float):
         a, b = np.searchsorted(t, h0), np.searchsorted(t, h1, side="right")     # route strictly inside
         xs = np.concatenate([cx[a:b], car_x[frame_of(h0):frame_of(h1) + 1]])
         ys = np.concatenate([cy[a:b], car_y[frame_of(h0):frame_of(h1) + 1]])
-        return cam_of(xs, ys, min_w)
+        return K.fit_cam(xs, ys, min_w)
 
     # Special shots (frame ranges): Alaska, flights to and from the islands, each
     # island group, metro dives, highlight holds. Road shots fill the gaps.
@@ -300,91 +279,33 @@ def plan(tour: dict):
     in_l48 = (coords[:, 0] > -125) & (coords[:, 1] < 49.0)
     if ak and code(st[0]["state"]) == "AK":                # walmart/: Alaska first, its own shot to the border
         enter_l48 = t[np.flatnonzero(in_l48 & (t > max(ak)))[0]]
-        special.append((f0, frame_of(enter_l48), route_cam(0, enter_l48, MIN_ROAD_KM)))
+        special.append((f0, frame_of(enter_l48), route_cam(0, enter_l48, K.MIN_ROAD_KM)))
     elif ak:                                                  # Alaska last: one shot from the border north
         leave_l48 = t[np.flatnonzero(in_l48 & (t < min(ak)))[-1]]
-        special.append((frame_of(leave_l48), f1, route_cam(leave_l48, total, MIN_ROAD_KM)))
+        special.append((frame_of(leave_l48), f1, route_cam(leave_l48, total, K.MIN_ROAD_KM)))
     for q, fl in enumerate(fls):
         if isl(fl["frm"]) and isl(fl["to"]):
             continue                                          # inside an island group's shot
         (ax, bx), (ay, by) = km([fl["a"][0], fl["b"][0]], [fl["a"][1], fl["b"][1]])
         lift = 0.25 * math.hypot(bx - ax, by - ay)
         mx, my = (ax + bx) / 2, (ay + by) / 2
-        special.append((frame_of(fl["t0"] / 3600) - int(FLIGHT_LEAD_S * FPS), frame_of(fl["t1"] / 3600),
-                        cam_of([ax, bx, mx - lift, mx + lift], [ay, by, my - lift, my + lift], MIN_ROAD_KM)))
+        special.append((frame_of(fl["t0"] / 3600) - int(K.FLIGHT_LEAD_S * FPS), frame_of(fl["t1"] / 3600),
+                        K.fit_cam([ax, bx, mx - lift, mx + lift], [ay, by, my - lift, my + lift], K.MIN_ROAD_KM)))
     for q, fl in enumerate(fls):                              # island group: landing .. next departure off it
         if isl(fl["to"]) and not isl(fl["frm"]):
             out = next(f for f in fls[q + 1:] if isl(f["frm"]) and not isl(f["to"]))
-            special.append((frame_of(fl["t1"] / 3600) - int(ISLAND_LEAD_S * FPS), frame_of(out["t0"] / 3600),
-                            route_cam(fl["t1"] / 3600, out["t0"] / 3600, MIN_DIVE_KM)))
+            special.append((frame_of(fl["t1"] / 3600) - int(K.ISLAND_LEAD_S * FPS), frame_of(out["t0"] / 3600),
+                            route_cam(fl["t1"] / 3600, out["t0"] / 3600, K.MIN_DIVE_KM)))
     for name, a, b in dives:
         xs, ys = km([x["lon"] for x in st[a:b + 1]], [x["lat"] for x in st[a:b + 1]])
-        special.append((frame_of(stop_t[a]), frame_of(stop_t[b]), cam_of(xs, ys, MIN_DIVE_KM)))
+        special.append((frame_of(stop_t[a]), frame_of(stop_t[b]), K.fit_cam(xs, ys, K.MIN_DIVE_KM)))
     for j in holds:
         (x,), (y,) = km([st[j]["lon"]], [st[j]["lat"]])
         i0 = frame_of(stop_t[j])
         special.append((max(f0, i0 - int(0.6 * FPS)), min(f1, i0 + hold_n + int(0.3 * FPS)),
-                        cam_of([x - HOLD_KM, x + HOLD_KM], [y - HOLD_KM, y + HOLD_KM], MIN_DIVE_KM)))
-    special.sort()
-    shots, i = [], f0
-
-    def fill(i: int, a: int) -> int:
-        """Road shots from frame i to a (about SHOT_S each); a tiny gap is left for
-        the next shot to start early. Returns where the next shot starts."""
-        if a - i > int(0.4 * FPS):
-            k = max(1, round((a - i) / (SHOT_S * FPS)))
-            for q in range(k):
-                e = a if q == k - 1 else i + (a - i) // (k - q)
-                shots.append((i, e, route_cam(drive[i], drive[e], MIN_ROAD_KM)))
-                i = e
-        return i
-
-    for a, b, cam in special:
-        a = max(a, i)
-        if b <= a:
-            continue
-        i = fill(i, a)
-        shots.append((i, b, cam))                             # starts early over a tiny gap
-        i = b
-    i = fill(i, f1)
-    if i < f1:
-        shots[-1] = (shots[-1][0], f1, shots[-1][2])
-
-    # Per-frame camera: hold each shot, glide (smoothstep, log zoom) across each cut.
-    xs = np.zeros(n)
-    ys = np.zeros(n)
-    ws = np.zeros(n)
-    for a, b, (x, y, w) in shots:
-        xs[a:b + 1], ys[a:b + 1], ws[a:b + 1] = x, y, w
-    glide = int(GLIDE_S * FPS)
-    lw = np.log(np.maximum(ws, 1))
-    sx, sy, slw = xs.copy(), ys.copy(), lw.copy()
-    for (a0, b0, c0), (a1, b1, c1) in zip(shots, shots[1:]):
-        g = min(glide, (b0 - a0) // 2, (b1 - a1) // 2)
-        for i in range(a1 - g, a1 + g + 1):
-            k = K.smoothstep((i - (a1 - g)) / max(1, 2 * g))
-            sx[i] = c0[0] + (c1[0] - c0[0]) * k
-            sy[i] = c0[1] + (c1[1] - c0[1]) * k
-            slw[i] = math.log(c0[2]) + (math.log(c1[2]) - math.log(c0[2])) * k
-
-    for arr, sig in ((sx, PAN_SMOOTH_S), (sy, PAN_SMOOTH_S), (slw, CAM_SMOOTH_S)):   # the drive section only
-        arr[f0:f1 + 1] = gaussian_filter1d(arr[f0:f1 + 1], sig * FPS, mode="nearest")
-    # Keep the car (or plane) inside the map area: widen (never narrow) the frame where it would leave.
-    from scipy.ndimage import maximum_filter1d
-    ex, ey = car_x - sx, car_y - sy
-    up = max(1.0, H / 2 - K.MAP_TOP - CAR_MARGIN)
-    down = max(1.0, K.MAP_BOTTOM - CAR_MARGIN - H / 2)
-    need = np.maximum.reduce([np.abs(ex) * W / (W / 2 - CAR_MARGIN), np.where(ey > 0, ey * W / up, 0),
-                              np.where(ey < 0, -ey * W / down, 0), np.ones(n)])
-    need_l = np.log(need)
-    need_l[:f0] = need_l[f1 + 1:] = 0
-    need_l[flying >= 0] = 0                                   # the plane flies an arc; its shot frames it
-    slw = np.maximum(slw, gaussian_filter1d(maximum_filter1d(need_l, FPS), FPS / 4))
-    cap = ZOOM_RATE_MAX / FPS
-    for i in range(f0 + 1, f1 + 1):
-        slw[i] = max(slw[i], slw[i - 1] - cap)
-    for i in range(f1 - 1, f0 - 1, -1):
-        slw[i] = max(slw[i], slw[i + 1] - cap)
+                        K.fit_cam([x - HOLD_KM, x + HOLD_KM], [y - HOLD_KM, y + HOLD_KM], K.MIN_DIVE_KM)))
+    shots = K.lay_shots(special, f0, f1, lambda i, e: route_cam(drive[i], drive[e], K.MIN_ROAD_KM))
+    sx, sy, slw = K.camera_path(shots, n, f0, f1, car_x, car_y, free=flying >= 0, zoom_rate=ZOOM_RATE_MAX)
 
     card_bottom = answer_card(Image.new("RGBA", (1, 1)), 0, tour)
     nat_w, nat_a = fit(K.MAP_TOP, K.TEXT_FLOOR)

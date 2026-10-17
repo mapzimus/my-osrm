@@ -8,7 +8,8 @@ layout, timing, sound and the encoder all live there. A new video imports the
 kit and only writes its own data and map logic. If this doc and the kit
 disagree, fix whichever is wrong in the same commit.
 
-Reference video: `experiments/college_tour/` (every college in New England).
+Reference video: `experiments/college_tour/` (every college in New England). Camera,
+flights and pacing: `experiments/chickfila/` (every Chick-fil-A, 2026-10-17).
 
 ---
 
@@ -30,7 +31,7 @@ Reference video: `experiments/college_tour/` (every college in New England).
 | | |
 |---|---|
 | Main format | 1080 × 1920 (9:16), 30 fps, **one export per platform** |
-| Platforms | `tiktok` and `reels` (Instagram); `K.use(platform)` sets the safe zones |
+| Platforms | `tiktok` and `reels` (Instagram); `K.use(platform)` sets the safe zones. **YouTube Shorts** is the Reels file sped to 58 s: `ffmpeg -i <slug>_reels.mp4 -vf setpts=PTS*58/65 -af atempo=65/58 -c:v h264_nvenc -cq 23 <slug>_shorts.mp4` |
 | Length | **65 s** (Max, 2026-10-13: "They should be 65s") |
 | Encode | H.264 on the GPU (`h264_nvenc` p7, CQ 19), `yuv420p`, `+faststart`, AAC 192 kb/s; `-Cpu` = libx264 CRF 18 (§14) |
 | Output | `experiments/<slug>/out/<slug>_<platform>.mp4` |
@@ -130,8 +131,28 @@ follows the clock, half follows the stops, so dense clusters slow down and
 empty highways speed up. The clock always shows the true drive time, it just
 runs at a varying speed.
 
-**Camera.** Follow the subject with smoothing (no jitter). Zoom out on long
-empty stretches, zoom in on clusters. No cuts; every move is continuous.
+**Camera: shots, not tracking** (standard since 2026-10-17; Max's calls on Big 5
+v1-v5 and Chick-fil-A: "it follows the tracker", "it outruns the screen", "less jumpy",
+"too zoomed out for regional movement"). Code: `reel_kit.lay_shots` + `K.camera_path`;
+reference `experiments/chickfila/video.py` `plan()`.
+
+1. **Road shots hold.** The frame sits on a stretch of route for about 3.8 s
+   (`SHOT_S`), framing that stretch plus 15 % margin, never narrower than 650 km
+   (`MIN_ROAD_KM`; a one-metro chain like ShopRite uses ~160). Then a 1.2 s glide
+   (`GLIDE_S`, smoothstep, zoom eased in log space) to the next shot.
+2. **Smoothed.** Gaussian on the zoom (0.35 s) and the centre (0.6 s). No cuts.
+3. **The car never leaves the frame.** Wherever it would come within 140 px of the map
+   edge (`CAR_MARGIN`), the frame widens; it never narrows for this.
+4. **Zoom speed capped**: at most 1.3 log-width per second (`ZOOM_RATE_MAX`; 2.6 when
+   flights go to islands 4,000 km out). Every jumpy zoom Max flagged was over this.
+5. **Fixed shots** go in first and road shots fill the gaps: metro dives (the longest
+   run of stops within ~50 km of a big metro, ≥ 90 km wide, `MIN_DIVE_KM`, ~2 s), highlight
+   holds (the clock stops 1.6 s, zoomed in), flights and island groups (section 8).
+
+**Labels** (Big 5 v5): a label starts when its place is reached, never before. A
+metro's label shows in the top slot during its dive; every other city stopped in gets a
+small box under its stop for 1.4 s (two at once stack). Suburbs read as their real city;
+never name a city after its neighbour (Baltimore is not "Washington").
 
 ## 6a. The first frame: logo + opening question
 
@@ -207,6 +228,20 @@ Alaska, islands; the end card says "flown").
   1.5 s after landing. Long flights get a larger plane.
 - The camera pulls out enough to keep both airports on screen, then
   settles back in on the arrival.
+- **The camera arrives before anything moves** (Max, 2026-10-17: "the flights look too
+  choppy, like the route starts going before the camera arrives"; fixed in Chick-fil-A).
+  Kit constants, reference `experiments/chickfila/video.py` `plan()`:
+  1. Screen time: a long flight counts as 700 pseudo-stops in `warp` (~2.5 s on screen),
+     an island hop 260 (~1 s); each stop on an island weighs 40 so island driving slows too.
+  2. Clock holds (`K.hold_clock`): 0.6 s at takeoff, 1.5 s at landing, 0.35 s for a hop.
+     The plane and the car stand still while the camera settles.
+  3. Lead-ins: the flight shot starts 0.9 s before the takeoff hold (the camera widens
+     while the car is still driving to the airport); the island shot starts 0.6 s before
+     touchdown.
+  4. While flying: no road line drawn, the car-in-frame rule is off (the plane's shot
+     frames its arc), and the "now" label reads `Landed` during the landing hold.
+  5. Check per flight, before rendering: the camera has stopped moving
+     before the clock moves again.
 - Clock: flight time at a stated cruise speed plus a fixed airport
   overhead, both written on the end card ("+ 2 flights, 550 mph, 2 h airport time").
 - Kicker `FLIGHT`, label `BOS → HNL`.
