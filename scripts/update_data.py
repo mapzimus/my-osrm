@@ -2,6 +2,7 @@
 
     python scripts/update_data.py us ca        # refresh US + Canada, rebuild
     python scripts/update_data.py mx --no-build
+    python scripts/update_data.py --region eu eu --no-build   # the 33 GB Europe file
 
 For each country: download to <file>.part (resumable), check the byte count
 against the server and that osmium can read the whole file, then swap it in
@@ -23,12 +24,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 sys.path.insert(0, str(ROOT / "scripts"))
-from build_ferry_engine import COUNTRIES, OUT, TOOLS_IMAGE  # noqa: E402
+from build_ferry_engine import REGIONS, TOOLS_IMAGE, Region  # noqa: E402
 
 GEOFABRIK = "https://download.geofabrik.de"
 # Download folder per country code. Geofabrik for everything it publishes
-# (Central America is top-level, Puerto Rico sits under us/); Bermuda only
-# exists on the openstreetmap.fr mirror.
+# (Central America and Europe are top-level, Puerto Rico sits under us/);
+# Bermuda only exists on the openstreetmap.fr mirror.
 SOURCE = {
     "us": f"{GEOFABRIK}/north-america",
     "ca": f"{GEOFABRIK}/north-america",
@@ -37,6 +38,7 @@ SOURCE = {
     "pr": f"{GEOFABRIK}/north-america/us",
     "bm": "https://download.openstreetmap.fr/extracts/north-america",
     "gl": f"{GEOFABRIK}/north-america",
+    "eu": GEOFABRIK,
 }
 
 
@@ -52,8 +54,8 @@ def remote_size(url: str) -> int:
     raise SystemExit(f"could not reach {url}")
 
 
-def download(cc: str) -> None:
-    raw = COUNTRIES[cc][0]
+def download(region: Region, cc: str) -> None:
+    raw = region.countries[cc][0]
     url = f"{SOURCE[cc]}/{raw}"
     dest, part = DATA / raw, DATA / f"{raw}.part"
     size = remote_size(url)
@@ -70,7 +72,7 @@ def download(cc: str) -> None:
                    check=True, stdout=subprocess.DEVNULL)
     part.replace(dest)
 
-    major = DATA / COUNTRIES[cc][1]
+    major = DATA / region.countries[cc][1]
     major.unlink(missing_ok=True)
     shutil.rmtree(DATA / "build" / cc, ignore_errors=True)
     print(f"[{cc}] swapped in; cleared {major.name} and build/{cc}/", flush=True)
@@ -78,18 +80,26 @@ def download(cc: str) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("countries", nargs="+", choices=COUNTRIES)
+    ap.add_argument("--region", choices=REGIONS, default="na")
+    # Country codes are validated against the chosen region below, not here:
+    # argparse would need the region before it can know the choices.
+    ap.add_argument("countries", nargs="+")
     ap.add_argument("--no-build", action="store_true")
     args = ap.parse_args()
+    region = REGIONS[args.region]
+    unknown = [cc for cc in args.countries if cc not in region.countries]
+    if unknown:
+        ap.error(f"not in region {region.code}: {unknown} (choose from {list(region.countries)})")
 
     for cc in args.countries:
-        download(cc)
+        download(region, cc)
     if args.no_build:
         return
-    subprocess.run(["docker", "compose", "stop", "na-ferry"], cwd=ROOT, check=True)
-    shutil.rmtree(OUT, ignore_errors=True)
-    subprocess.run([sys.executable, str(ROOT / "scripts" / "build_ferry_engine.py")], check=True)
-    subprocess.run(["docker", "compose", "up", "-d", "na-ferry"], cwd=ROOT, check=True)
+    subprocess.run(["docker", "compose", "stop", region.name], cwd=ROOT, check=True)
+    shutil.rmtree(region.out, ignore_errors=True)
+    subprocess.run([sys.executable, str(ROOT / "scripts" / "build_ferry_engine.py"),
+                    "--region", region.code], check=True)
+    subprocess.run(["docker", "compose", "up", "-d", region.name], cwd=ROOT, check=True)
 
 
 if __name__ == "__main__":
