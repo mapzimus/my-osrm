@@ -52,10 +52,13 @@ BLUE = (255, 176, 59)                  # a shop once reached: the house amber (k
 # Camera (Max, 2026-10-14: the follow-cam was too zoomed in at the start, the
 # national view too far out later, no metro close-ups): a list of shots, each a
 # still frame on what the car covers in it, with short glides between them.
-SHOT_S = 2.5                           # road shots: about this long on screen
+# Max, 2026-10-17 (v1): "less zoomed on when going over a long distance ... it outruns the screen":
+# road shots hold twice as long on a wider frame, and a pass widens any frame the car nears the edge of.
+SHOT_S = 5.0                           # road shots: about this long on screen
 GLIDE_S = 0.7                          # transition between shots
-PAD = 0.12                             # margin around a shot's route
-MIN_ROAD_KM, MIN_DIVE_KM = 450, 60     # narrowest frame for a road shot / a highlight zoom
+PAD = 0.18                             # margin around a shot's route
+MIN_ROAD_KM, MIN_DIVE_KM = 900, 60     # narrowest frame for a road shot / a highlight zoom
+CAR_MARGIN = 140                       # px: the car stays at least this far inside the map area
 # Metro dives: every metro with 5+ big-5 teams, (lon, lat, radius km) -> its venues. The route
 # visits each in one run (cache/tour.json), so each is one zoomed shot.
 METROS = {"Denver": (-104.95, 39.77, 25), "Los Angeles": (-118.1, 33.95, 50),
@@ -74,8 +77,12 @@ CALLOUT_S = 1.8
 
 GROUPS = ["NFL", "MLB", "NBA", "NHL", "MLS"]           # chips count teams, not buildings
 CHIP = {g: g for g in GROUPS}
-LOGO_ZOOM_KM = 1500                    # narrower views show logos at the venues; wider ones, dots
-LOGO_PX, LOGO_POP = 46, 1.8            # a team logo on the map (px), and its size on arrival (x)
+# Logos (Max, v1: "not every logo pops up ... should pop up bigger"): every arrival pops its
+# teams' logos at LOGO_POP_PX at any zoom, shrinking to a marker that stays where there is room.
+LOGO_PX, LOGO_PX_WIDE = 46, 32         # marker logo (px): zoomed in / a wide view (over LOGO_WIDE_KM)
+LOGO_WIDE_KM = 1500
+LOGO_POP_PX, LOGO_POP_S = 120, 0.9     # an arrival's logo size, and how long it takes to shrink
+LOGO_POP = LOGO_POP_PX / LOGO_PX       # logos are loaded at this size and scaled down per frame
 COMMENT = HERE / "assets" / "comment.jpg"   # the request (Rojbew), a screenshot from Max
 WIN_RGB, REST_RGB = (0xC4, 0x87, 0x0B), (0x56, 0x5E, 0x6E)     # format doc 6a (validated on the card)
 COMMENT_S = 3.4                              # on screen from the first frame
@@ -438,6 +445,20 @@ def plan(tour: dict):
             sy[i] = c0[1] + (c1[1] - c0[1]) * k
             slw[i] = math.log(c0[2]) + (math.log(c1[2]) - math.log(c0[2])) * k
 
+    # Keep the car inside the map area: widen (never narrow) the frame where it would leave it,
+    # spread over ~1 s so the zoom eases out instead of jumping.
+    from scipy.ndimage import maximum_filter1d
+    ex, ey = car_x - sx, car_y - sy
+    half_x = W / 2 - CAR_MARGIN
+    up = max(1.0, H / 2 - K.MAP_TOP - CAR_MARGIN)
+    down = max(1.0, K.MAP_BOTTOM - CAR_MARGIN - H / 2)
+    need = np.maximum.reduce([np.abs(ex) * W / half_x, np.where(ey > 0, ey * W / up, 0),
+                              np.where(ey < 0, -ey * W / down, 0), np.ones(n)])
+    need_l = np.log(need)
+    need_l[:f0] = need_l[f1 + 1:] = 0
+    need_l = gaussian_filter1d(maximum_filter1d(need_l, FPS), FPS / 4)
+    slw = np.maximum(slw, need_l)
+
     card_bottom = answer_card(Image.new("RGBA", (1, 1)), 0, tour)
     nat_w, nat_a = fit(K.MAP_TOP, K.TEXT_FLOOR)
     end_w, end_a = fit(card_bottom + 20, K.TEXT_FLOOR)
@@ -558,39 +579,55 @@ OFFSETS = [(0, 0), (0, -1), (0, 1), (1, 0), (-1, 0), (1, -1), (-1, -1), (1, 1), 
            (0, -2), (0, 2), (2, 0), (-2, 0), (2, -1), (-2, -1), (2, 1), (-2, 1)]
 
 
-def logo_layer(im: Image.Image, venues: list[tuple[int, float, float]], s: float, visit_s: np.ndarray) -> None:
-    """Each reached venue's team logos side by side, placed in visit order so earlier ones stay
-    put: centred on the venue, else the first free spot around it (OFFSETS, in box sizes) with
-    a thin leader line back to a dot on the venue. A new arrival pops in at LOGO_POP x."""
+def logo_layer(im: Image.Image, venues: list[tuple[int, float, float]], s: float, visit_s: np.ndarray,
+               cw: float) -> None:
+    """Each reached venue's team logos side by side. Markers are placed in visit order so earlier
+    ones stay put: centred on the venue, else the first free spot around it (OFFSETS, in box
+    sizes) with a thin leader line; with no room left, an amber dot. Arrivals still popping are
+    drawn last, over everything, from LOGO_POP_PX down to the marker size."""
     st = G["tour"]["stops"]
     d = ImageDraw.Draw(im)
-    placed = []
+    base = LOGO_PX if cw < LOGO_WIDE_KM else LOGO_PX_WIDE
     gap = 6
+    placed, pops = [], []
     for j, x, y in venues:
-        if not (-80 < x < W + 80 and K.MAP_TOP - 80 < y < H + 80):
+        if not (-150 < x < W + 150 and K.MAP_TOP - 150 < y < H + 150):
             continue
-        teams = st[j]["teams"]
-        bw = len(teams) * LOGO_PX + (len(teams) - 1) * gap
-        bh = LOGO_PX
+        n = len(st[j]["teams"])
+        age = s - visit_s[j]
+        if age < LOGO_POP_S:
+            pops.append((age, j, x, y))
+            continue
+        bw, bh = n * base + (n - 1) * gap, base
+        spot = None
         for ox, oy in OFFSETS:
             bx, by = x + ox * (bw + 8) - bw / 2, y + oy * (bh + 8) - bh / 2
             if all(bx + bw + 4 < a or bx > c + 4 or by + bh + 4 < b or by > e + 4 for a, b, c, e in placed):
+                spot = (ox, oy, bx, by)
                 break
+        if spot is None:                                         # crowded: a dot, no logo
+            d.ellipse((x - 5, y - 5, x + 5, y + 5), fill=BLUE)
+            continue
+        ox, oy, bx, by = spot
         placed.append((bx, by, bx + bw, by + bh))
-        age = s - visit_s[j]
-        pop = 1 + (LOGO_POP - 1) * K.smoothstep(max(0.0, 1 - age / 0.5))
         if (ox, oy) != (0, 0):                                   # displaced: leader line to the venue
             d.line([(x, y), (bx + bw / 2, by + bh / 2)], fill=(*K.MUTED, 255), width=2)
             d.ellipse((x - 4, y - 4, x + 4, y + 4), fill=BLUE)
-        cxx, cyy = bx + bw / 2, by + bh / 2
-        size = LOGO_PX * pop
-        tot = len(teams) * size + (len(teams) - 1) * gap * pop
-        for q, t in enumerate(teams):
-            lg = G["logos"][t["logo"]]
-            f = size / max(lg.size)
-            lg = lg.resize((max(1, round(lg.width * f)), max(1, round(lg.height * f))), Image.LANCZOS)
-            lx = cxx - tot / 2 + q * (size + gap * pop) + (size - lg.width) / 2
-            im.alpha_composite(lg, (int(lx), int(cyy - lg.height / 2)))
+        draw_logos(im, st[j]["teams"], bx + bw / 2, by + bh / 2, base, gap)
+    for age, j, x, y in sorted(pops, reverse=True):              # the newest on top
+        k = K.smoothstep(min(1.0, age / LOGO_POP_S))
+        size = LOGO_POP_PX + (base - LOGO_POP_PX) * k
+        draw_logos(im, st[j]["teams"], x, y - size * 0.6 * (1 - k), size, gap * size / base)
+
+
+def draw_logos(im: Image.Image, teams: list[dict], cx: float, cy: float, size: float, gap: float) -> None:
+    tot = len(teams) * size + (len(teams) - 1) * gap
+    for q, t in enumerate(teams):
+        lg = G["logos"][t["logo"]]
+        f = size / max(lg.size)
+        lg = lg.resize((max(1, round(lg.width * f)), max(1, round(lg.height * f))), Image.LANCZOS)
+        lx = cx - tot / 2 + q * (size + gap) + (size - lg.width) / 2
+        im.alpha_composite(lg, (int(lx), int(cy - lg.height / 2)))
 
 
 def render(i: int) -> bytes:
@@ -680,7 +717,7 @@ def render(i: int) -> bytes:
     visited = visit_s <= s
     zoom = min(1.5, max(0.7, (400 / cw) ** 0.3))
     stops_px = px(G["stops"])
-    logos_on = cw < LOGO_ZOOM_KM and s <= DRIVE_END + K.PULL_OUT * 0.5
+    logos_on = s <= DRIVE_END + K.PULL_OUT * 0.5
     for j, ((x, y), v) in enumerate(zip(stops_px, visited)):
         if not (-50 < x < W * SS + 50 and -50 < y < H * SS + 50):
             continue
@@ -712,7 +749,8 @@ def render(i: int) -> bytes:
 
     im = im.resize((W, H), Image.LANCZOS).convert("RGBA")
     if logos_on:
-        logo_layer(im, [(j, stops_px[j][0] / SS, stops_px[j][1] / SS) for j in np.flatnonzero(visited)], s, visit_s)
+        logo_layer(im, [(j, stops_px[j][0] / SS, stops_px[j][1] / SS) for j in np.flatnonzero(visited)], s, visit_s,
+                   cw)
     im.alpha_composite(G["shade"])
 
     # Callouts: highlights for CALLOUT_S after the car gets there; metro names during a dive.
