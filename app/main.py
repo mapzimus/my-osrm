@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app import config, jobs, registry
+from app.setup import ferries
 
 
 def create_app() -> FastAPI:
@@ -49,6 +50,8 @@ def create_app() -> FastAPI:
             "basemaps": files,
             "places_index": (config.APP_DATA / "places.sqlite").exists(),
             "ferries_overlay": (config.APP_DATA / "ferries.geojson").exists(),
+            # True after an engine rebuild until `python -m app.setup --only ferries` runs again
+            "ferries_stale": ferries.stale(),
         }
 
     @app.middleware("http")

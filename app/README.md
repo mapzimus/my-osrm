@@ -64,8 +64,10 @@ Derived data lives in `data/app/` (places.sqlite, ferries.geojson), `data/basema
 - Basemap: Protomaps daily build, North America bbox, z0–15. Dailies expire after a week;
   `data/basemap/BUILD.txt` records which one you have. Re-run `--only basemap` after deleting the
   file to refresh (set `BASEMAP_BUILD` in `config.py` to pin one).
-- The ferry overlay reads `data/build/<cc>/ferry-connectors.osm.pbf`; delete `data/app/ferries.geojson`
-  and re-run `--only ferries` after a ferry rebuild adds a country.
+- The ferry overlay is built from the engine's own network file (`data/osrm-na-ferry/na-ferry.osm.pbf`)
+  and remembers which one (`data/app/ferries.src.json`). After an engine rebuild `python -m app.setup
+  --only ferries` rebuilds it by itself, and `/api/config` reports `ferries_stale: true` until then.
+  Then `pwsh -File app/autostart.ps1 restart` (the benchmarks tool imports the report card at startup).
 - Isochrone land fill shells out to the `my-osrm-tools` image (as the CLI does); untick "land fill" if
   Docker isn't running.
 - MapLibre needs WebGL to draw; a hidden browser pane (e.g. a background tab) stalls rendering until shown.

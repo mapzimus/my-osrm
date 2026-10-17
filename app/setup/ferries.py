@@ -17,6 +17,7 @@ Both run with pyosmium inside the tools container.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -134,10 +135,43 @@ write(feats + endpoints())
 '''
 
 
+SRC = config.APP_DATA / "ferries.src.json"     # which network file the overlay was built from
+
+
+def fingerprint() -> dict | None:
+    """Identity of the engine network the overlay is built from: name, size and date. A
+    rebuild changes both numbers (VM mtimes travel with the files, so "newer than" is
+    not used, only "different")."""
+    if NETWORK.exists() and NETWORK.stat().st_size > 0:
+        s = NETWORK.stat()
+        return {"source": NETWORK.name, "size": s.st_size, "mtime": int(s.st_mtime)}
+    return None
+
+
+def stale() -> bool:
+    """True when the overlay exists but the engine network changed since it was built, i.e.
+    after an engine rebuild: run `python -m app.setup --only ferries` (and restart the app)."""
+    if not OUT.exists() or not SRC.exists():
+        return False
+    try:
+        return json.loads(SRC.read_text()) != fingerprint()
+    except (OSError, ValueError):
+        return False
+
+
 def run(scratch: Path) -> Path:
+    fp = fingerprint()
     if OUT.exists():
-        print(f"[skip] ferry overlay ({OUT.stat().st_size / 1e6:.1f} MB); delete it to rebuild")
-        return OUT
+        if not SRC.exists():
+            # Built before the fingerprint existed (2026-10-17): assume the current network.
+            if fp:
+                SRC.write_text(json.dumps(fp))
+            print(f"[skip] ferry overlay ({OUT.stat().st_size / 1e6:.1f} MB); delete it to rebuild")
+            return OUT
+        if not stale():
+            print(f"[skip] ferry overlay ({OUT.stat().st_size / 1e6:.1f} MB) matches {NETWORK.name}")
+            return OUT
+        print(f"[redo] {NETWORK.name} changed since the overlay was built (engine rebuild): rebuilding")
     use_network = NETWORK.exists() and NETWORK.stat().st_size > 0
     if not use_network and not any((config.DATA / "build").glob("*/ferry-connectors.osm.pbf")):
         raise RuntimeError("no engine network (data/osrm-na-ferry/na-ferry.osm.pbf) and no "
@@ -150,5 +184,7 @@ def run(scratch: Path) -> Path:
     cmd = ["docker", "run", "--rm", "-v", f"{config.DATA}:/data", "-v", f"{scratch}:/scratch:ro",
            config.TOOLS_IMAGE, "python", "/scratch/ferries_build.py"]
     subprocess.run(cmd, check=True)
+    if fp:
+        SRC.write_text(json.dumps(fp))
     print(f"[done] ferry overlay -> {OUT}")
     return OUT
