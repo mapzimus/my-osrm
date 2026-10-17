@@ -349,7 +349,7 @@ def hook_q(im: Image.Image, alpha: float) -> None:
     if alpha < 1:
         lg = lg.copy()
         lg.putalpha(lg.getchannel("A").point(lambda v: int(v * alpha)))
-    cy = int(K.MAP_TOP + 70)                                     # under the watermark (format doc 6a)
+    cy = int((K.MAP_TOP + y0 - 40) / 2 - lg.height / 2)          # centred between the chips and the question (Max: "too high")
     layer.alpha_composite(lg, ((W - lg.width) // 2, cy))
     im.alpha_composite(layer)
 
