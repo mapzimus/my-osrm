@@ -54,10 +54,14 @@ BLUE = (255, 176, 59)                  # a shop once reached: the house amber (k
 # still frame on what the car covers in it, with short glides between them.
 # Max, 2026-10-17 (v1): "less zoomed on when going over a long distance ... it outruns the screen":
 # road shots hold twice as long on a wider frame, and a pass widens any frame the car nears the edge of.
-SHOT_S = 5.0                           # road shots: about this long on screen
-GLIDE_S = 0.7                          # transition between shots
-PAD = 0.18                             # margin around a shot's route
-MIN_ROAD_KM, MIN_DIVE_KM = 900, 60     # narrowest frame for a road shot / a highlight zoom
+# v3 (Max: "a little less jumpy with the zooming, and a little too zoomed out for regional
+# movement. Find a middleground"): between v1 (2.5 s, 450 km) and v2 (5 s, 900 km), longer glides,
+# and the whole camera path smoothed (CAM_SMOOTH_S) before the keep-the-car-in pass.
+SHOT_S = 3.8                           # road shots: about this long on screen
+GLIDE_S = 1.2                          # transition between shots
+PAD = 0.15                             # margin around a shot's route
+MIN_ROAD_KM, MIN_DIVE_KM = 650, 60     # narrowest frame for a road shot / a highlight zoom
+CAM_SMOOTH_S = 0.35                    # gaussian sigma on the camera path (centre and log zoom)
 CAR_MARGIN = 140                       # px: the car stays at least this far inside the map area
 # Metro dives: every metro with 5+ big-5 teams, (lon, lat, radius km) -> its venues. The route
 # visits each in one run (cache/tour.json), so each is one zoomed shot.
@@ -445,6 +449,8 @@ def plan(tour: dict):
             sy[i] = c0[1] + (c1[1] - c0[1]) * k
             slw[i] = math.log(c0[2]) + (math.log(c1[2]) - math.log(c0[2])) * k
 
+    for arr in (sx, sy, slw):                                 # smooth the drive section only
+        arr[f0:f1 + 1] = gaussian_filter1d(arr[f0:f1 + 1], CAM_SMOOTH_S * FPS, mode="nearest")
     # Keep the car inside the map area: widen (never narrow) the frame where it would leave it,
     # spread over ~1 s so the zoom eases out instead of jumping.
     from scipy.ndimage import maximum_filter1d
