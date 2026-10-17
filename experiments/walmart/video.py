@@ -22,6 +22,7 @@ import time
 from multiprocessing import Pool
 from pathlib import Path
 
+import cv2
 import numpy as np
 import shapefile
 from PIL import Image, ImageDraw
@@ -44,10 +45,30 @@ DRIVE_END = SECONDS - K.END_CARD - K.PULL_OUT - 0.5
 CARD_IN = DRIVE_END + K.PULL_OUT - 0.4
 CLIP = (-172.0, 15.0, -60.0, 72.0)
 DRIVE_DAY_H = 8                        # end card: driving days at 8 h a day
-FLIGHT_STOPS = 60                      # ~3,900 stops: a flight needs more pseudo-stops to stay on screen
+FLIGHT_STOPS, HOP_STOPS = 150, 70      # pseudo-stops: long flights ~1 s on screen, island hops less
 BLUE = (0, 113, 206)                   # a store once reached
-DIVES = {"Dallas": (-96.80, 32.78), "Atlanta": (-84.39, 33.75), "Orlando": (-81.38, 28.54)}
-DIVE_S, DIVE_KM, DIVE_NEAR_KM = 3.0, 700, 120
+# Camera (Max, 2026-10-14: the follow-cam was too zoomed in at the start, the
+# national view too far out later, no metro close-ups): a list of shots, each a
+# still frame on what the car covers in it, with short glides between them.
+SHOT_S = 2.5                           # road shots: about this long on screen
+GLIDE_S = 0.7                          # transition between shots
+PAD = 0.12                             # margin around a shot's route
+MIN_ROAD_KM, MIN_DIVE_KM = 450, 110    # narrowest frame for a road shot / a metro dive
+# Metro dives: the longest run of consecutive stores within r km of the centre,
+# framed tight and slowed to DIVE_WEIGHT x so the city visibly fills in.
+METROS = {"Houston": (-95.4, 29.8, 55), "Chicago": (-87.8, 41.85, 50),
+          "Orlando": (-81.35, 28.55, 40),
+          "Dallas–Fort Worth": (-97.0, 32.8, 60), "Los Angeles": (-118.1, 34.0, 55)}
+DIVE_WEIGHT = 14                       # Hawaii and Puerto Rico stores: x per store
+DIVE_STOPS = 600                       # pseudo-stops per metro dive (~2 s on screen, whatever its size)
+# Highlights: (lon, lat) of the store -> callout; hold=True pauses the clock and zooms in.
+# Store #1: 2110 W Walnut St, Rogers, AR (opened 1962). Biggest: Store 2152, Crossgates
+# Commons, Albany, NY, ~260,000 sq ft on two floors (Food Republic, Tasting Table).
+# The extremes are computed from the store list in init().
+HIGHLIGHTS = [((-94.148751, 36.331656), "Walmart #1: Rogers, AR (1962)", True),
+              ((-73.847463, 42.694578), "Biggest Walmart: Albany, NY (260,000 sq ft)", True)]
+HOLD_S = 1.6
+CALLOUT_S = 1.8
 
 GROUPS = ["West", "Midwest", "South", "Northeast", "Islands"]
 CHIP = {"West": "W", "Midwest": "MW", "South": "S", "Northeast": "NE", "Islands": "HI·PR"}
@@ -138,6 +159,50 @@ def end_rows(tour: dict) -> tuple[list[tuple[str, str]], list[str]]:
     return rows, footer
 
 
+ISLAND_AIRPORTS = {"SJU", "HNL", "OGG", "KOA", "ITO", "LIH"}
+
+
+def _near(st: list[dict], lon: float, lat: float, r_km: float) -> np.ndarray:
+    k = math.cos(math.radians(lat))
+    return np.array([j for j, x in enumerate(st)
+                     if math.hypot((x["lon"] - lon) * k, x["lat"] - lat) * 111.2 < r_km], int)
+
+
+def metro_runs(st: list[dict]) -> list[tuple[str, int, int]]:
+    """(name, first, last) stop index of each metro's longest run of consecutive stores."""
+    out = []
+    for name, spec in METROS.items():
+        parts = spec if isinstance(spec[0], tuple) else (spec,)     # Central Florida: Tampa + Orlando
+        longest = [_longest_run(_near(st, *part)) for part in parts]
+        out.append((name, min(r[0] for r in longest), max(r[-1] for r in longest)))
+    return sorted(out, key=lambda r: r[1])
+
+
+def _longest_run(idx: np.ndarray) -> list[int]:
+    runs, run = [], [int(idx[0])]
+    for a, b in zip(idx, idx[1:]):
+        if b == a + 1:
+            run.append(int(b))
+        else:
+            runs.append(run)
+            run = [int(b)]
+    return max(runs + [run], key=len)
+
+
+def highlights(st: list[dict]) -> list[tuple[int, str, bool]]:
+    """(stop index, callout, hold) for the famous stores and the four extremes."""
+    out = []
+    for (lon, lat), text, hold in HIGHLIGHTS:
+        j = min(range(len(st)), key=lambda j: (st[j]["lon"] - lon) ** 2 + (st[j]["lat"] - lat) ** 2)
+        out.append((j, text, hold))
+    for label, j in (("Northernmost", max(range(len(st)), key=lambda j: st[j]["lat"])),
+                     ("Westernmost", min(range(len(st)), key=lambda j: st[j]["lon"])),
+                     ("Southernmost", min(range(len(st)), key=lambda j: st[j]["lat"])),
+                     ("Easternmost", max(range(len(st)), key=lambda j: st[j]["lon"]))):
+        out.append((j, f"{label}: {st[j]['town']}", False))
+    return out
+
+
 def plan(tour: dict):
     n = SECONDS * FPS
     coords = np.asarray(tour["coords"])
@@ -149,13 +214,29 @@ def plan(tour: dict):
     secs = np.arange(n) / FPS
     f0, f1 = int(DRIVE_START * FPS), int(DRIVE_END * FPS)
 
+    st = tour["stops"]
+    dives = metro_runs(st)
+    holds = [j for j, _, hold in highlights(st) if hold]
+
     # Pacing: flights get FLIGHT_STOPS pseudo-stops so the plane is on screen
-    # long enough to read; they only shape the pace, nothing is counted.
+    # long enough to read; metro dives get DIVE_WEIGHT x per store. Holds pause
+    # the clock on a highlight. None of this is counted, it only shapes the pace.
     pace = list(stop_t)
     for fl in tour["flights"]:
-        pace += list(np.linspace(fl["t0"], fl["t1"], FLIGHT_STOPS + 2)[1:-1] / 3600)
+        k = HOP_STOPS if fl["frm"] in ISLAND_AIRPORTS and fl["to"] in ISLAND_AIRPORTS else FLIGHT_STOPS
+        pace += list(np.linspace(fl["t0"], fl["t1"], k + 2)[1:-1] / 3600)
+    for _, a, b in dives:
+        pace += list(np.linspace(stop_t[a], stop_t[b], DIVE_STOPS + 2)[1:-1])
+    for j, x in enumerate(st[:-1]):
+        if x["region"] in ("HI", "PR") and st[j + 1]["region"] == x["region"]:
+            pace += list(np.linspace(stop_t[j], stop_t[j + 1], DIVE_WEIGHT + 1)[1:-1])
+    hold_n = int(HOLD_S * FPS)
+    core = K.warp(np.sort(pace), total, f1 + 1 - f0 - hold_n * len(holds))
+    for j in sorted(holds, key=lambda j: -stop_t[j]):        # back to front: indices stay valid
+        k = int(np.searchsorted(core, stop_t[j]))
+        core = np.concatenate([core[:k], np.full(hold_n, stop_t[j]), core[k:]])
     drive = np.zeros(n)
-    drive[f0:f1 + 1] = K.warp(np.sort(pace), total, f1 + 1 - f0)
+    drive[f0:f1 + 1] = core
     drive[f1 + 1:] = total
 
     car_x, car_y = np.interp(drive, t, cx), np.interp(drive, t, cy)
@@ -168,52 +249,122 @@ def plan(tour: dict):
     land_s = [np.searchsorted(drive[f0:f1 + 1], fl["t1"] / 3600 - 1e-9) / FPS + DRIVE_START
               for fl in tour["flights"]]
 
-    # Camera: the whole country, except dives (first pass near each DIVES city),
-    # flights, and the stores off the lower-48 map (Hawaii, Puerto Rico, Alaska).
-    st = tour["stops"]
-    l48 = [s for s in st if s["region"] == "US" and s["lon"] > -130]
-    allx, ally = km([s["lon"] for s in l48], [s["lat"] for s in l48])
+    # Opening and closing views frame the lower 48.
+    l48 = [x for x in st if x["region"] == "US" and x["lon"] > -130]
+    allx, ally = km([x["lon"] for x in l48], [x["lat"] for x in l48])
     ox, oy = (allx.min() + allx.max()) / 2, (ally.min() + ally.max()) / 2
 
     def fit(top: float, bottom: float) -> tuple[float, float]:
         return max(np.ptp(allx) * 1.08, np.ptp(ally) * W / ((bottom - top) * 0.94)), (top + bottom) / 2
 
-    follow = np.zeros(n)
-    width = np.full(n, float(DIVE_KM))
-    clon, clat = np.interp(drive, t, coords[:, 0]), np.interp(drive, t, coords[:, 1])
-    for lon, lat in DIVES.values():
-        dx, dy = km([lon], [lat])
-        near = np.flatnonzero(np.hypot(car_x - dx[0], car_y - dy[0]) < DIVE_NEAR_KM)
-        near = near[(near >= f0) & (near <= f1)]
-        if len(near):
-            follow[near[0]:near[0] + int(DIVE_S * FPS)] = 1
-    off_map = (clon < -130) | (clat < 24.0)                    # Alaska, Hawaii, Puerto Rico
-    follow[off_map] = 1
-    for fl in tour["flights"]:
+    def frame_of(h: float) -> int:                            # first frame at drive time h
+        return int(np.clip(np.searchsorted(drive, h - 1e-9), f0, f1))
+
+    def cam_of(xs, ys, min_w: float) -> tuple[float, float, float]:
+        x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+        w = max((x1 - x0) * (1 + 2 * PAD), (y1 - y0) * (1 + 2 * PAD) * W / (K.MAP_BOTTOM - K.MAP_TOP), min_w)
+        return (x0 + x1) / 2, (y0 + y1) / 2 + (K.MAP_CENTER_Y - H / 2) * w / W, w
+
+    def route_cam(h0: float, h1: float, min_w: float):
+        a, b = np.searchsorted(t, h0), np.searchsorted(t, h1, side="right")     # route strictly inside
+        xs = np.concatenate([cx[a:b], car_x[frame_of(h0):frame_of(h1) + 1]])
+        ys = np.concatenate([cy[a:b], car_y[frame_of(h0):frame_of(h1) + 1]])
+        return cam_of(xs, ys, min_w)
+
+    # Special shots (frame ranges): Alaska, flights to and from the islands, each
+    # island group, metro dives, highlight holds. Road shots fill the gaps.
+    special = []
+    fls = tour["flights"]
+    isl = lambda c: c in ISLAND_AIRPORTS                      # noqa: E731
+    leave_ak = max(x["t"] for x in st if x["state"] == "Alaska") / 3600
+    enter_l48 = next(t[v] for v in range(len(t)) if t[v] > leave_ak and
+                     coords[v][0] > -125 and coords[v][1] < 49.0)
+    special.append((f0, frame_of(enter_l48), route_cam(0, enter_l48, MIN_ROAD_KM)))
+    for q, fl in enumerate(fls):
+        if isl(fl["frm"]) and isl(fl["to"]):
+            continue                                          # inside an island group's shot
         (ax, bx), (ay, by) = km([fl["a"][0], fl["b"][0]], [fl["a"][1], fl["b"][1]])
-        m = (drive > fl["t0"] / 3600) & (drive < fl["t1"] / 3600)
-        follow[m] = 1
-        width[m] = max(abs(bx - ax), abs(by - ay) * W / (K.MAP_BOTTOM - K.MAP_TOP)) * 1.3
-    follow[:f0] = follow[f1 + 1:] = 0
-    follow = np.clip(gaussian_filter1d(follow, FPS * 0.35, mode="nearest") * 1.6, 0, 1)
-    width = np.exp(gaussian_filter1d(np.log(width), FPS * 0.5, mode="nearest"))
-    fx = gaussian_filter1d(car_x, FPS * 0.45, mode="nearest")
-    fy = gaussian_filter1d(car_y, FPS * 0.45, mode="nearest")
+        lift = 0.25 * math.hypot(bx - ax, by - ay)
+        mx, my = (ax + bx) / 2, (ay + by) / 2
+        special.append((frame_of(fl["t0"] / 3600), frame_of(fl["t1"] / 3600),
+                        cam_of([ax, bx, mx - lift, mx + lift], [ay, by, my - lift, my + lift], MIN_ROAD_KM)))
+    for q, fl in enumerate(fls):                              # island group: landing .. next departure off it
+        if isl(fl["to"]) and not isl(fl["frm"]):
+            out = next(f for f in fls[q + 1:] if isl(f["frm"]) and not isl(f["to"]))
+            special.append((frame_of(fl["t1"] / 3600), frame_of(out["t0"] / 3600),
+                            route_cam(fl["t1"] / 3600, out["t0"] / 3600, MIN_DIVE_KM)))
+    for name, a, b in dives:
+        xs, ys = km([x["lon"] for x in st[a:b + 1]], [x["lat"] for x in st[a:b + 1]])
+        special.append((frame_of(stop_t[a]), frame_of(stop_t[b]), cam_of(xs, ys, MIN_DIVE_KM)))
+    for j in holds:
+        (x,), (y,) = km([st[j]["lon"]], [st[j]["lat"]])
+        i0 = frame_of(stop_t[j])
+        special.append((max(f0, i0 - int(0.6 * FPS)), min(f1, i0 + hold_n + int(0.3 * FPS)),
+                        cam_of([x - 50, x + 50], [y - 50, y + 50], MIN_DIVE_KM)))
+    special.sort()
+    shots, i = [], f0
+
+    def fill(i: int, a: int) -> int:
+        """Road shots from frame i to a (about SHOT_S each); a tiny gap is left for
+        the next shot to start early. Returns where the next shot starts."""
+        if a - i > int(0.4 * FPS):
+            k = max(1, round((a - i) / (SHOT_S * FPS)))
+            for q in range(k):
+                e = a if q == k - 1 else i + (a - i) // (k - q)
+                shots.append((i, e, route_cam(drive[i], drive[e], MIN_ROAD_KM)))
+                i = e
+        return i
+
+    for a, b, cam in special:
+        a = max(a, i)
+        if b <= a:
+            continue
+        i = fill(i, a)
+        shots.append((i, b, cam))                             # starts early over a tiny gap
+        i = b
+    i = fill(i, f1)
+    if i < f1:
+        shots[-1] = (shots[-1][0], f1, shots[-1][2])
+
+    # Per-frame camera: hold each shot, glide (smoothstep, log zoom) across each cut.
+    xs = np.zeros(n)
+    ys = np.zeros(n)
+    ws = np.zeros(n)
+    for a, b, (x, y, w) in shots:
+        xs[a:b + 1], ys[a:b + 1], ws[a:b + 1] = x, y, w
+    glide = int(GLIDE_S * FPS)
+    lw = np.log(np.maximum(ws, 1))
+    sx, sy, slw = xs.copy(), ys.copy(), lw.copy()
+    for (a0, b0, c0), (a1, b1, c1) in zip(shots, shots[1:]):
+        g = min(glide, (b0 - a0) // 2, (b1 - a1) // 2)
+        for i in range(a1 - g, a1 + g + 1):
+            k = K.smoothstep((i - (a1 - g)) / max(1, 2 * g))
+            sx[i] = c0[0] + (c1[0] - c0[0]) * k
+            sy[i] = c0[1] + (c1[1] - c0[1]) * k
+            slw[i] = math.log(c0[2]) + (math.log(c1[2]) - math.log(c0[2])) * k
 
     card_bottom = K.end_card(Image.new("RGBA", (1, 1)), *end_rows(tour), 0)
     nat_w, nat_a = fit(K.MAP_TOP, K.TEXT_FLOOR)
     end_w, end_a = fit(card_bottom + 20, K.TEXT_FLOOR)
+    nat = (ox, oy + (nat_a - H / 2) * nat_w / W, nat_w)
+    end = (ox, oy + (end_a - H / 2) * end_w / W, end_w)
+    first, last = (sx[f0], sy[f0], math.exp(slw[f0])), (sx[f1], sy[f1], math.exp(slw[f1]))
+
+    def blend(c0, c1, k):
+        return (c0[0] + (c1[0] - c0[0]) * k, c0[1] + (c1[1] - c0[1]) * k,
+                math.exp(math.log(c0[2]) + (math.log(c1[2]) - math.log(c0[2])) * k))
+
     cams = []
     for i, s in enumerate(secs):
-        ow, oa = (end_w, end_a) if s > DRIVE_END else (nat_w, nat_a)
-        k = follow[i] if s <= DRIVE_END else 0.0
-        x = ox + (fx[i] - ox) * k
-        y = oy + (fy[i] - oy) * k
-        w = math.exp(math.log(ow) + (math.log(width[i]) - math.log(ow)) * k)
-        a = oa + (K.MAP_CENTER_Y - oa) * k
-        cams.append((x, y + (a - H / 2) * w / W, w))
+        if s < DRIVE_START:
+            cams.append(blend(nat, first, K.smoothstep((s - K.HOOK) / K.DIVE)))
+        elif i > f1:
+            cams.append(blend(last, end, K.smoothstep((s - DRIVE_END) / K.PULL_OUT)))
+        else:
+            cams.append((sx[i], sy[i], math.exp(slw[i])))
     return dict(drive=drive, car=(car_x, car_y), cams=cams, idx=np.searchsorted(t, drive),
-                miles=np.interp(drive, t, dist), total=total, visit_s=visit_s, land_s=land_s, flying=flying)
+                miles=np.interp(drive, t, dist), total=total, visit_s=visit_s, land_s=land_s, flying=flying,
+                shots=shots, dives=[(nm, frame_of(stop_t[a]), frame_of(stop_t[b])) for nm, a, b in dives])
 
 
 # --- frame -------------------------------------------------------------------------
@@ -231,7 +382,7 @@ def init(tour: dict, platform: str) -> None:
     G["mode"] = np.asarray(tour["mode"])
     G["runs"] = split_runs(G["mode"])
     G["simple"] = {lvl: [simplified(G["route"][a:b], tol) for _, a, b in G["runs"]]
-                   for lvl, tol in (("fine", 0.03), ("coarse", 0.6))}
+                   for lvl, tol in (("fine", 0.03), ("coarse", 0.6), ("national", 2.0))}
     G["flight_v"] = list(np.flatnonzero(G["mode"] == "flight"))     # route vertex of each flight
     town = {x["name"]: x["town"] for x in tour["stops"]}
     for fl in tour["flights"]:
@@ -247,6 +398,7 @@ def init(tour: dict, platform: str) -> None:
     for x in st:
         seen[x["state"]] += 1
         G["state_done"].append(seen[x["state"]])
+    G["highlights"] = highlights(st)
     G["shade"] = K.shade()
     G["end"] = end_rows(tour)
 
@@ -304,7 +456,8 @@ def render(i: int) -> bytes:
     plane = None
     if drive > 0:
         route = G["route"]
-        lvl = "coarse" if cw > 1500 else "fine"
+        lvl = "national" if cw > 3000 else "coarse" if cw > 1500 else "fine"   # national: ~1 px per vertex
+        roads = []
         for r, (kind, a, b) in enumerate(G["runs"]):
             if a >= k:
                 break
@@ -325,8 +478,15 @@ def render(i: int) -> bytes:
             if kind == "ferry":
                 K.dashed(d, pts, K.ACCENT, int(SS * 3.6), SS * 14, SS * 10)
             else:
-                d.line(pts, fill=K.ACCENT_GLOW, width=int(SS * 9), joint="curve")
-                d.line(pts, fill=K.ACCENT, width=int(SS * 3.6), joint="curve")
+                roads.append(np.round(np.asarray(pts) * 16).astype(np.int32))
+        # Roads in one OpenCV pass: PIL's joint="curve" drew a circle per vertex
+        # (1.3 M per frame, 12 s); cv2's thick lines have round joins built in.
+        if roads:
+            arr = np.array(im)
+            cv2.polylines(arr, roads, False, K.ACCENT_GLOW, int(SS * 9), cv2.LINE_8, 4)    # SS=2 + resize smooths edges
+            cv2.polylines(arr, roads, False, K.ACCENT, int(SS * 3.6), cv2.LINE_8, 4)
+            im = Image.fromarray(arr)
+            d = ImageDraw.Draw(im)
         # The open segment up to the car (road or ferry); flights draw the plane.
         if q >= 0:
             fl = tour["flights"][q]
@@ -376,6 +536,22 @@ def render(i: int) -> bytes:
 
     im = im.resize((W, H), Image.LANCZOS).convert("RGBA")
     im.alpha_composite(G["shade"])
+
+    # Callouts: highlights for CALLOUT_S after the car gets there; metro names during a dive.
+    over = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    od = ImageDraw.Draw(over)
+    for j, text, hold in G["highlights"]:
+        age = s - visit_s[j]
+        dur = CALLOUT_S + (HOLD_S if hold else 0)
+        if 0 <= age <= dur and s <= DRIVE_END:
+            x, y = stops_px[j]
+            K.callout(od, x / SS, y / SS, text, min(1.0, age / 0.15, (dur - age) / 0.3))
+    for name, a, b in P["dives"]:
+        if a <= i <= b:
+            al = min(1.0, (i - a) / (0.2 * FPS), (b - i) / (0.3 * FPS))
+            box = K.callout_box(W / 2, K.MAP_TOP + 120, name)
+            K.callout(od, W / 2, K.MAP_TOP + 120, name, al, box=box)
+    im.alpha_composite(over)
     d = ImageDraw.Draw(im)
 
     n_vis = int(visited.sum())

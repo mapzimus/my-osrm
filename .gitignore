@@ -6,23 +6,28 @@ data/*
 .remember/
 .env
 logs/
-
-# Experiment caches (re-computable in seconds)
-experiments/*/cache/
+.pytest_cache/
+__pycache__/
+*.pyc
 
 # Playwright MCP output
 .playwright-mcp/
 
+# What cloud_build.ps1 fetch unpacks beside the repo (home/mhowe/report_card.txt)
+home/
+
 # app: vendored libs are fetched by app/setup (MANIFEST.json is the record)
 app/web/vendor/*
 !app/web/vendor/MANIFEST.json
-__pycache__/
-*.pyc
 
-# Overnight run log (experiments/isochrone/out/OVERNIGHT.md is the summary)
-experiments/isochrone/out/*.log
+# benchmarks: sweep results and the city cache (the .md summaries are tracked)
+benchmarks/*.json
 
-# Optimal Drives renders (re-made by video.py; post from out/, never commit)
-experiments/college_tour/out/
+# Experiments (docs/optimal-drives-format.md section 14, docs/videos.md)
+# cache/: routes, matrices, solver files; re-computable (tour.json can be 85 MB)
+experiments/*/cache/
+# out/: renders, stills, render logs. Post from out/, never commit. The isochrone web
+# maps (*.html) and its OVERNIGHT.md/report_card.txt stay tracked from before this rule.
+experiments/*/out/
+experiments/*.log
 experiments/walmart/lkh/*.tgz
-experiments/dunkin-vs-starbucks/out/

@@ -51,6 +51,8 @@ The report card's control cases check drive times against real-world bands.
 | Path | What |
 |---|---|
 | `app/` | Offline browser interface: routes, isochrones, matrices, report card, engine comparison, inspector, exports. `python -m app.setup` once, then `python -m app` → http://127.0.0.1:8080. See [app/README.md](app/README.md) |
+| `experiments/` | The **Optimal Drives** videos (@mapzimus): one folder per video, `reel_kit.py` (house style) + `reel_tour.py` (shared plumbing), `render.ps1` (the launcher), `new_video.py` (scaffold the next one). Catalogue: [docs/videos.md](docs/videos.md); standard: [docs/optimal-drives-format.md](docs/optimal-drives-format.md) |
+| `docs/` | Plans, the video standard, the idea list, audits. Index: [docs/README.md](docs/README.md) |
 | `benchmarks/` | Report card: known trips with known answers (ferries, border shortcuts, controls) |
 | `profiles/car.lua` | Calibrated car profile, mounted over `/opt/car.lua` in every build |
 | `scripts/build_ferry_engine.py` | Build the recommended engine (runs from Windows; only needs docker) |
@@ -66,4 +68,6 @@ All Docker images are pinned by digest (OSRM v26.5.0, osmium 1.19.0, the `tools/
 
 1. ~~Import from optitrek~~
 2. ~~Audit & improve~~: ferries, Canada, pinned images, calibrated drive times
-3. **Experiments**
+3. ~~Rebuild #4~~ (2026-10-12, 41/41): [docs/final-build-plan.md](docs/final-build-plan.md)
+4. **Optimal Drives videos**: 30+ shipped since 2026-10-13, [docs/videos.md](docs/videos.md)
+5. **Europe engine** (`eu-ferry`, :5004): [docs/europe-plan.md](docs/europe-plan.md)

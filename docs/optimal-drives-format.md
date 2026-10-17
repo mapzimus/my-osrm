@@ -4,12 +4,16 @@ The house style for every **Optimal Drives** video by **@mapzimus**. One
 look, one layout, one rhythm, so a viewer knows it's ours from the first frame.
 
 The code side of this document is `experiments/reel_kit.py`: colours, fonts,
-layout, timing, sound and the encoder all live there. A new video imports the
-kit and only writes its own data and map logic. If this doc and the kit
-disagree, fix whichever is wrong in the same commit.
+layout, timing, camera, sound and the encoder all live there. The plumbing under
+a tour video (projection, basemap, route helpers, the command line) is
+`experiments/reel_tour.py`. A new video imports both and only writes its own
+data, plan, frame and cards: start it with `python experiments/new_video.py <slug>`
+(template in `experiments/_template/`). If this doc and the kit disagree, fix
+whichever is wrong in the same commit. Tests: `python -m pytest experiments/tests`.
 
 Reference video: `experiments/college_tour/` (every college in New England). Camera,
 flights and pacing: `experiments/chickfila/` (every Chick-fil-A, 2026-10-17).
+Every video so far, and the workflow: [videos.md](videos.md).
 
 ---
 
@@ -334,7 +338,11 @@ Always render with the launcher (Max, 2026-10-14: "I want it done this way every
   command skips the parts that already finished. `-Only k` renders just part k
   (trials); delete that part file afterwards, or the next full render skips it.
 - **Join, then sound.** `--join N` stream-copies the parts (no re-encode, no quality
-  loss), then `--sound` muxes the soundtrack if asked.
+  loss), then `--sound` muxes the soundtrack if asked. `-Shorts` then writes the 58 s
+  YouTube Shorts cut of that render (section 2) as `out/<video>_shorts.mp4`.
+- **Several in a row:** `.\experiments\render_queue.ps1 "aw -Shorts" "aw -Platform reels"`
+  runs each render.ps1 line in turn in one hidden process (render.ps1 ends with `exit`,
+  so chaining them with `;` in one pwsh never runs the second). Log: `experiments/render_queue.log`.
 - **Stills first.** Check changes with `video.py --stills 12,30,64` (seconds) before
   any full render; a still costs seconds, a render costs half an hour.
 - A `video.py` needs `--part k/n`, `--join n` and `--workers` for this (capitals is

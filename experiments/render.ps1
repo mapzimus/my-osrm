@@ -3,6 +3,8 @@
 #   .\experiments\render.ps1 capitals -Sound             # tiktok, 3 parts, ticks & chimes
 #   .\experiments\render.ps1 lighthouses -Platform reels -Parts 4   # silent (the default)
 #   .\experiments\render.ps1 walmart -Workers 1 -KeepEngine -Cpu   # the old, slow way
+#   .\experiments\render.ps1 shoprite -Shorts                      # tiktok, then its 58 s Shorts cut
+#   .\experiments\render_queue.ps1 "shoprite -Shorts" "shoprite -Platform reels"   # several, back to back
 #
 # Why this way: a 65 s reel is ~2,000 frames, beside a 5 GB OSRM container. A single
 # long run kept dying from low memory, and a render started as a Claude Code
@@ -28,6 +30,7 @@ param(
     [switch] $Sound,
     [switch] $KeepEngine,   # leave the OSRM container running during the render
     [switch] $Cpu,          # libx264 instead of the GPU (reel_kit reads OD_ENCODER)
+    [switch] $Shorts,       # after the join: also the YouTube Shorts cut (58 s) of this render, format doc section 2
     [switch] $Wait          # run in this window instead of detaching
 )
 $dir = Join-Path $PSScriptRoot $Video
@@ -43,6 +46,7 @@ if (-not $Wait) {
     if ($Sound) { $me += "-Sound" }
     if ($KeepEngine) { $me += "-KeepEngine" }
     if ($Cpu) { $me += "-Cpu" }
+    if ($Shorts) { $me += "-Shorts" }
     Start-Process pwsh -WindowStyle Hidden -ArgumentList $me
     Write-Output "Rendering $Video ($Platform, $Parts parts, up to $Workers workers) in a hidden window. Log: $log"
     return
@@ -93,6 +97,20 @@ try {
     if ($Sound) { $join += "--sound" }
     & $py @join *>> $log
     if ($LASTEXITCODE) { $status = "JOIN FAILED (exit $LASTEXITCODE)"; return }
+    if ($Shorts) {
+        # YouTube Shorts: this render sped to 58 s (format doc section 2). The audio
+        # filter only applies when the file has a soundtrack.
+        $src = "out\${Video}_${Platform}.mp4"
+        if (-not (Test-Path $src)) { "-Shorts: $src not found (video.py names its output differently?); skipped" | Add-Content $log }
+        else {
+            $hasAudio = (& ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 $src 2>$null)
+            $vcodec = if ($Cpu) { @("-c:v", "libx264", "-preset", "slow", "-crf", "20") } else { @("-c:v", "h264_nvenc", "-preset", "p7", "-cq", "23") }
+            $audio = if ($hasAudio) { @("-af", "atempo=65/58", "-c:a", "aac", "-b:a", "192k") } else { @("-an") }
+            & ffmpeg -y -loglevel error -i $src -vf "setpts=PTS*58/65" @audio @vcodec -pix_fmt yuv420p -movflags +faststart "out\${Video}_shorts.mp4" *>> $log
+            if ($LASTEXITCODE) { $status = "SHORTS FAILED (exit $LASTEXITCODE)"; return }
+            "wrote out\${Video}_shorts.mp4" | Add-Content $log
+        }
+    }
     $status, $code = "ALL DONE $(Get-Date -Format 'HH:mm')", 0
 }
 finally {

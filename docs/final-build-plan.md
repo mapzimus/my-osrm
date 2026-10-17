@@ -1,5 +1,9 @@
 # Final build plan (rebuild #4)
 
+**Status: done.** Built on GCP and fetched 2026-10-12; report card 41/41, ferry sweep clean,
+serving as `na-ferry` on :5002 since. Kept as the record of what was fixed and why. The next
+engine is Europe: [europe-plan.md](europe-plan.md).
+
 ## Why another build
 The cloud build from 2026-10-11 scored 37/39. Every remaining defect is in the
 data pipeline, so the fix needs a rebuild. Two audits had read the code, and the

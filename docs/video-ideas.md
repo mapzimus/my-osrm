@@ -1,28 +1,28 @@
 # OSRM Video Ideas
 
-Check off ideas as they get made. Coverage caveat: confirm whether the US extract includes Alaska before making any Alaska idea.
+Check off ideas as they get made (the ticked ones point at their `experiments/` folder; the full list of what shipped, including videos not on this list, is [videos.md](videos.md)). Coverage caveat: confirm whether the US extract includes Alaska before making any Alaska idea.
 
 ## Batch 1 (1–100)
 
 ### Optimal tours (`/trip`)
-- [ ] 1. Every national park in the lower 48
-- [ ] 2. Every state capital
+- [x] 1. Every national park in the lower 48  ← `experiments/national_parks (61, all 50 states)`
+- [x] 2. Every state capital  ← `experiments/capitals (US, CA, MX)`
 - [ ] 3. Every MLB stadium
-- [ ] 4. Every NFL stadium
-- [ ] 5. Every NBA arena
-- [ ] 6. Every NHL arena, Canada included
-- [ ] 7. Every MLS stadium
+- [x] 4. Every NFL stadium  ← `experiments/big5`
+- [x] 5. Every NBA arena  ← `experiments/nba`
+- [x] 6. Every NHL arena, Canada included  ← `experiments/nhl`
+- [x] 7. Every MLS stadium  ← `experiments/big5`
 - [ ] 8. Every NASCAR track
 - [ ] 9. Every presidential library
-- [ ] 10. Every Buc-ee's
+- [x] 10. Every Buc-ee's  ← `experiments/bucees`
 - [ ] 11. Every IKEA in the US
 - [ ] 12. Every Waffle House in Georgia
 - [ ] 13. Every Trader Joe's in one state
 - [ ] 14. Every Costco in Texas
 - [ ] 15. Every Ivy League campus
 - [ ] 16. Every Big Ten school (USC to Rutgers)
-- [ ] 17. Every Canadian provincial capital
-- [ ] 18. Every Mexican state capital
+- [x] 17. Every Canadian provincial capital  ← `experiments/capitals`
+- [x] 18. Every Mexican state capital  ← `experiments/capitals`
 - [ ] 19. Every Central American capital, Guatemala City to Panama City
 - [ ] 20. Every 2026 World Cup host city
 - [ ] 21. Every Super Bowl host city
@@ -46,7 +46,7 @@ Check off ideas as they get made. Coverage caveat: confirm whether the US extrac
 - [ ] 37. Most countries in 24 hours (Central America)
 - [ ] 38. Most Canadian provinces in a day
 - [ ] 39. Most state lines crossed in one hour
-- [ ] 40. A drive that crosses the same border the most times
+- [x] 40. A drive that crosses the same border the most times  ← `experiments/border_crossings, parked`
 - [ ] 41. Longest route that never touches an interstate
 - [ ] 42. Longest drive with no turns
 - [ ] 43. Two nearby points with an absurd number of turns between them
@@ -89,7 +89,7 @@ Check off ideas as they get made. Coverage caveat: confirm whether the US extrac
 - [ ] 76. One tank of gas (~400 mi) from each city
 - [ ] 77. EV range (300 mi) from each city
 - [ ] 78. 3-hour weekend radius from each top-20 metro
-- [ ] 79. 1 hour from every major airport
+- [x] 79. 1 hour from every major airport  ← `experiments/airports (every passenger airport)`
 - [ ] 80. Drive until sunset on the summer solstice
 - [ ] 81. Drive-time cartogram warped around one city
 - [ ] 82. Same cartogram centered on a tiny town
@@ -130,8 +130,8 @@ Check off ideas as they get made. Coverage caveat: confirm whether the US extrac
 - [ ] 111. Every Hall of Fame (Cooperstown, Canton, Cleveland, etc.)
 - [ ] 112. Every drivable Maya ruin (Mexico, Guatemala, Belize, Honduras)
 - [ ] 113. Every covered bridge in Vermont
-- [ ] 114. Every Route 66 landmark
-- [ ] 115. Wawa vs. Sheetz: every store in their overlap zone
+- [x] 114. Every Route 66 landmark  ← `experiments/route66_towns`
+- [x] 115. Wawa vs. Sheetz: every store in their overlap zone  ← `experiments/wawa-vs-sheetz`
 - [ ] 116. Every Tim Hortons in one province
 - [ ] 117. Every Cracker Barrel in one state
 - [ ] 118. Every Bass Pro Shops
@@ -177,7 +177,7 @@ Check off ideas as they get made. Coverage caveat: confirm whether the US extrac
 - [ ] 154. Drive time to the nearest Costco across America
 - [ ] 155. Chick-fil-A deserts
 - [ ] 156. Starbucks vs. Dunkin' territory by drive time
-- [ ] 157. Your "closest NFL team" by drive time (Voronoi)
+- [x] 157. Your "closest NFL team" by drive time (Voronoi)  ← `experiments/nfl (Turf Wars)`
 - [ ] 158. Same for MLB and NBA
 - [ ] 159. Places closer to another state's capital than their own
 - [ ] 160. Pizza Hut vs. Domino's deserts
@@ -227,9 +227,9 @@ Check off ideas as they get made. Coverage caveat: confirm whether the US extrac
 - [ ] 200. Year-end "OSRM Wrapped": your top routes of the year
 
 ## Batch 3 (201+)
-- [ ] 201. Every town called Salem (Halloween drop, end in Salem, MA)
+- [x] 201. Every town called Salem (Halloween drop, end in Salem, MA)  ← `experiments/salem`
 - [ ] 202. Draw the lower 48's state borders using only roads: the closest drivable path along every border
-- [ ] 203. Dunkin' vs. Starbucks flood: every store "leaves" at once, drive-time fronts spread out along roads (Dunkin' orange, Starbucks green) until they collide. Ends on an art-print map of the border between them.
+- [x] 203. Dunkin' vs. Starbucks flood: every store "leaves" at once, drive-time fronts spread out along roads (Dunkin' orange, Starbucks green) until they collide. Ends on an art-print map of the border between them.  ← `experiments/dunkin-vs-starbucks`
 
 ## Batch 4 (204–303)
 
@@ -239,10 +239,10 @@ Check off ideas as they get made. Coverage caveat: confirm whether the US extrac
 - [ ] 206. Home Depot vs. Lowe's
 - [ ] 207. CVS vs. Walgreens
 - [ ] 208. Waffle House vs. IHOP
-- [ ] 209. Wawa vs. Sheetz (the real Pennsylvania frontline)
+- [x] 209. Wawa vs. Sheetz (the real Pennsylvania frontline)  ← `experiments/wawa-vs-sheetz`
 - [ ] 210. Tim Hortons vs. Starbucks in Canada
 - [ ] 211. OXXO vs. 7-Eleven in Mexico
-- [ ] 212. Every hospital (the gaps are medical deserts)
+- [x] 212. Every hospital (the gaps are medical deserts)  ← `experiments/hospitals`
 - [ ] 213. Every fire station
 - [ ] 214. Every public library
 - [ ] 215. Every post office
@@ -256,7 +256,7 @@ Check off ideas as they get made. Coverage caveat: confirm whether the US extrac
 - [ ] 221. Every road colored by drive time from your house (poster)
 - [ ] 222. All roads lead to one city: routes from every county seat, line width by overlap
 - [ ] 223. Same, one per state, to each capital
-- [ ] 224. Every town to its nearest coast, drawn like river basins
+- [x] 224. Every town to its nearest coast, drawn like river basins  ← `experiments/coasts`
 - [ ] 225. Every town to its nearest interstate (tree structure)
 - [ ] 226. Walmart watersheds: every town to its nearest Walmart
 - [ ] 227. Routes between every pair of the top 100 cities, stacked
@@ -340,8 +340,8 @@ Check off ideas as they get made. Coverage caveat: confirm whether the US extrac
 - [ ] 295. Belize speedrun: every town
 
 ### Misc
-- [ ] 296. Every town with population 1
-- [ ] 297. The smallest town in each state
+- [x] 296. Every town with population 1  ← `experiments/smallest_towns`
+- [x] 297. The smallest town in each state  ← `experiments/smallest_towns`
 - [ ] 298. Embarrass, MN to Accident, MD to Peculiar, MO to Hot Coffee, MS
 - [ ] 299. Every place that claims to be the "center" of something
 - [ ] 300. IKEA deserts: worst drive to an IKEA by state

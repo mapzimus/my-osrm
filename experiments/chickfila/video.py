@@ -9,33 +9,29 @@ logo and the question; the answer card ends it (docs/optimal-drives-format.md 6a
 Run inventory.py, then experiments/walmart/build.py --cache experiments/chickfila/cache --max-leg-h 30.
 
     python experiments/chickfila/video.py --platform tiktok --stills 1,15,30,45,63
+
+The shared plumbing (projection, basemap, route helpers, the command line) is reel_tour.py; this
+file is the reference for what a video itself writes (2026-10-17, moved out of here unchanged).
 """
 
 from __future__ import annotations
 
-import argparse
 import collections
 import json
 import math
-import subprocess
 import sys
-import time
-from multiprocessing import Pool
 from pathlib import Path
 
 import cv2
 import numpy as np
-import shapefile
 from PIL import Image, ImageDraw
-from shapely.geometry import box, shape
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 import reel_kit as K  # noqa: E402
+import reel_tour as T  # noqa: E402
 
-ROOT = HERE.parents[1]
 CACHE, OUT = HERE / "cache", HERE / "out"
-NE_DATA = ROOT / "data" / "naturalearth"
 
 FPS, SS = K.FPS, 2
 W, H = K.W, K.H
@@ -64,41 +60,10 @@ CALLOUT_S = 1.8
 # Chips: US Census regions, then Canada and the islands
 GROUPS = ["South", "West", "Midwest", "Northeast", "Canada", "Islands"]
 CHIP = {"South": "S", "West": "W", "Midwest": "MW", "Northeast": "NE", "Canada": "CAN", "Islands": "HI·PR"}
-REGION = {**{c: "Northeast" for c in "ME NH VT MA RI CT NY NJ PA".split()},
-          **{c: "Midwest" for c in "OH MI IN IL WI MN IA MO ND SD NE KS".split()},
-          **{c: "West" for c in "MT ID WY CO NM AZ UT NV CA OR WA AK".split()}}
-STATE_NAME = {"AL": "Alabama", "AZ": "Arizona", "AR": "Arkansas", "CA": "California", "CO": "Colorado",
-              "CT": "Connecticut", "DE": "Delaware", "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho",
-              "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana",
-              "ME": "Maine", "MD": "Maryland", "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota",
-              "MS": "Mississippi", "MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada",
-              "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
-              "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma", "OR": "Oregon",
-              "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
-              "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VA": "Virginia", "WA": "Washington",
-              "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming", "DC": "Washington, DC",
-              "PR": "Puerto Rico", "ON": "Ontario", "AB": "Alberta"}
-NAME_CODE = {v: k for k, v in STATE_NAME.items()}
+STATE_NAME = T.STATE_NAME
 CARD_STATES = 6                        # answer card: bars for the top states, then one for the rest
 
-# --- projection: Albers equal-area conic on a sphere, km --------------------------
-
-R, LON0, P1, P2, PHI0 = 6371.0, -100.0, 29.5, 45.5, 37.5
-_n = (math.sin(math.radians(P1)) + math.sin(math.radians(P2))) / 2
-_C = math.cos(math.radians(P1)) ** 2 + 2 * _n * math.sin(math.radians(P1))
-_rho0 = R * math.sqrt(_C - 2 * _n * math.sin(math.radians(PHI0))) / _n
-
-
-def km(lon, lat):
-    lon, lat = np.radians(np.asarray(lon, float)), np.radians(np.asarray(lat, float))
-    rho = R * np.sqrt(_C - 2 * _n * np.sin(lat)) / _n
-    th = _n * (lon - math.radians(LON0))
-    return rho * np.sin(th), _rho0 - rho * np.cos(th)
-
-
-def code(state: str) -> str:
-    """build.py stores full state names; inventory.py wrote codes. Either -> 'WI'."""
-    return state if len(state) == 2 else NAME_CODE[state]
+km, code, ferry_name = T.km, T.code, T.ferry_name
 
 
 def group(s: dict) -> str:
@@ -107,49 +72,7 @@ def group(s: dict) -> str:
         return "Islands"
     if c in ("ON", "AB"):
         return "Canada"
-    return REGION.get(c, "South")
-
-
-def ferry_name(name: str) -> str:
-    """OSM ferry names, tidied for the label."""
-    return name.replace("Linconlville", "Lincolnville").replace(" - ", " – ").replace(" ↔ ", " – ")
-
-
-# --- basemap ---------------------------------------------------------------------
-
-def rings(path: Path, tol: float, lines: bool = False) -> list[tuple[np.ndarray, tuple]]:
-    """Polygon rings (or lines) in km with their bounding boxes."""
-    clip, out = box(*CLIP), []
-    for shp in shapefile.Reader(str(path)).iterShapes():
-        if shp.shapeType == shapefile.NULL:
-            continue
-        b = shp.bbox
-        if b[0] > CLIP[2] or b[2] < CLIP[0] or b[1] > CLIP[3] or b[3] < CLIP[1]:
-            continue
-        g = shape(shp.__geo_interface__)
-        if not g.intersects(clip):
-            continue
-        g = g.intersection(clip).simplify(tol)
-        for p in getattr(g, "geoms", [g]):
-            parts = ([p.exterior, *p.interiors] if p.geom_type == "Polygon"
-                     else [p] if p.geom_type == "LineString" else [])
-            for r in parts:
-                xy = np.asarray(r.coords)
-                if len(xy) > 2 or (lines and len(xy) > 1):
-                    pk = np.column_stack(km(xy[:, 0], xy[:, 1]))
-                    out.append((pk, (*pk.min(0), *pk.max(0))))
-    return out
-
-
-def basemap():
-    out = {}
-    for lvl, tol in (("fine", 0.006), ("coarse", 0.05)):
-        out[lvl] = (rings(NE_DATA / "ne_10m_land" / "ne_10m_land.shp", tol),
-                    rings(NE_DATA / "ne_10m_lakes" / "ne_10m_lakes.shp", tol),
-                    rings(NE_DATA / "ne_10m_admin_0_countries" / "ne_10m_admin_0_countries.shp", tol),
-                    rings(ROOT / "experiments/college_tour/cache/states/ne_10m_admin_1_states_provinces_lines.shp",
-                          tol, lines=True))
-    return out
+    return T.CENSUS_REGION.get(c, "South")
 
 
 # --- timeline -------------------------------------------------------------------
@@ -167,33 +90,6 @@ def end_rows(tour: dict) -> tuple[list[tuple[str, str]], list[str]]:
 
 
 ISLAND_AIRPORTS = {"SJU", "HNL", "OGG", "KOA", "ITO", "LIH"}
-
-
-def _near(st: list[dict], lon: float, lat: float, r_km: float) -> np.ndarray:
-    k = math.cos(math.radians(lat))
-    return np.array([j for j, x in enumerate(st)
-                     if math.hypot((x["lon"] - lon) * k, x["lat"] - lat) * 111.2 < r_km], int)
-
-
-def metro_runs(st: list[dict]) -> list[tuple[str, int, int]]:
-    """(name, first, last) stop index of each metro's longest run of consecutive stores."""
-    out = []
-    for name, spec in METROS.items():
-        parts = spec if isinstance(spec[0], tuple) else (spec,)     # Central Florida: Tampa + Orlando
-        longest = [_longest_run(_near(st, *part)) for part in parts]
-        out.append((name, min(r[0] for r in longest), max(r[-1] for r in longest)))
-    return sorted(out, key=lambda r: r[1])
-
-
-def _longest_run(idx: np.ndarray) -> list[int]:
-    runs, run = [], [int(idx[0])]
-    for a, b in zip(idx, idx[1:]):
-        if b == a + 1:
-            run.append(int(b))
-        else:
-            runs.append(run)
-            run = [int(b)]
-    return max(runs + [run], key=len)
 
 
 def highlights(st: list[dict]) -> list[tuple[int, str, bool]]:
@@ -217,7 +113,7 @@ def plan(tour: dict):
     f0, f1 = int(DRIVE_START * FPS), int(DRIVE_END * FPS)
 
     st = tour["stops"]
-    dives = metro_runs(st)
+    dives = T.metro_runs(st, METROS)
     holds = [j for j, _, hold in highlights(st) if hold]
 
     # Pacing: flights get K.FLIGHT_STOPS pseudo-stops so the plane is on screen
@@ -339,13 +235,13 @@ G: dict = {}
 def init(tour: dict, platform: str) -> None:
     K.use(platform)
     G["tour"] = tour
-    G["base"] = basemap()
+    G["base"] = T.basemap(CLIP)
     G["plan"] = plan(tour)
     c = np.asarray(tour["coords"])
     G["route"] = np.column_stack(km(c[:, 0], c[:, 1]))
     G["mode"] = np.asarray(tour["mode"])
-    G["runs"] = split_runs(G["mode"])
-    G["simple"] = {lvl: [simplified(G["route"][a:b], tol) for _, a, b in G["runs"]]
+    G["runs"] = T.split_runs(G["mode"])
+    G["simple"] = {lvl: [T.simplified(G["route"][a:b], tol) for _, a, b in G["runs"]]
                    for lvl, tol in (("fine", 0.03), ("coarse", 0.6), ("national", 2.0))}
     G["flight_v"] = list(np.flatnonzero(G["mode"] == "flight"))     # route vertex of each flight
     town = {x["name"]: x["town"] for x in tour["stops"]}
@@ -364,49 +260,15 @@ def init(tour: dict, platform: str) -> None:
         G["state_done"].append(seen[x["state"]])
     G["highlights"] = highlights(st)
     G["shade"] = K.shade()
-    G["comment"] = comment_card()
-    lg = Image.open(HERE / "assets" / "logo.png").convert("RGBA")       # en.wikipedia File:Chick-fil-A Logo.svg
-    lg = lg.crop(lg.getbbox())
-    f = min(420 / lg.width, 190 / lg.height)              # room for the comment card above it
-    G["logo"] = lg.resize((round(lg.width * f), round(lg.height * f)), Image.LANCZOS)
+    G["comment"] = T.comment_card(COMMENT)
+    # en.wikipedia File:Chick-fil-A Logo.svg; 190 px tall leaves room for the comment card above it
+    G["logo"] = T.logo(HERE / "assets" / "logo.png", (420, 190))
     G["end"] = end_rows(tour)
-
-
-def split_runs(mode: np.ndarray) -> list[tuple[str, int, int]]:
-    """(kind, a, b): route vertices a..b-1 travelled by road, ferry or flight.
-    mode[i] is how the segment ending at vertex i was travelled."""
-    out, a = [], 0
-    for i in range(1, len(mode)):
-        if i == len(mode) - 1 or mode[i + 1] != mode[i]:
-            out.append((str(mode[i]), a, i + 1))
-            a = i
-    return out
-
-
-def simplified(xy: np.ndarray, tol: float) -> np.ndarray:
-    from shapely.geometry import LineString
-    if len(xy) < 3:
-        return xy
-    return np.asarray(LineString(xy).simplify(tol).coords)
 
 
 WIN_RGB, REST_RGB = (0xC4, 0x87, 0x0B), (0x56, 0x5E, 0x6E)     # format doc 6a (validated on the card)
 COMMENT = HERE / "assets" / "comment.jpg"     # the request, Max's screenshot
 COMMENT_S = 3.4                               # on screen from the first frame (culvers/)
-
-
-def comment_card() -> Image.Image:
-    """The viewer's comment, rounded, on a thin border, W - 200 px wide (culvers/video.py)."""
-    im = Image.open(COMMENT).convert("RGBA")
-    w = W - 200
-    im = im.resize((w, round(im.height * w / im.width)), Image.LANCZOS)
-    mask = Image.new("L", im.size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, im.width - 1, im.height - 1), 24, fill=255)
-    im.putalpha(mask)
-    card = Image.new("RGBA", (im.width + 6, im.height + 6), (0, 0, 0, 0))
-    ImageDraw.Draw(card).rounded_rectangle((0, 0, card.width - 1, card.height - 1), 27, fill=(*K.BORDER, 255))
-    card.alpha_composite(im, (3, 3))
-    return card
 
 
 def hook_q(im: Image.Image, alpha: float) -> None:
@@ -674,85 +536,16 @@ def sound(tour: dict, path: Path) -> None:
     K.soundtrack(path, SECONDS, list(vs[:-1]), chimes, float(vs[-1]))
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--platform", choices=["tiktok", "reels"], default="tiktok")
-    ap.add_argument("--stills", help="comma-separated seconds; writes PNGs only")
-    # 2 workers: 6 ran the machine out of memory beside the engine (2026-10-13).
-    ap.add_argument("--workers", type=int, default=2)
-    # Off by default (format doc): add app audio when posting.
-    ap.add_argument("--silent", dest="sound", action="store_false", help="no ticks or chimes")
-    ap.add_argument("--sound", action="store_true", help=argparse.SUPPRESS)   # render.ps1 -Sound passes it; on anyway
-    ap.add_argument("--tour", default=str(CACHE / "tour.json"), help="e.g. cache/sample50/tour.json for a trial")
-    # Low memory (2026-10-14, 1.4 GB free): render in parts, each short enough to
-    # finish in one sitting, then --join them (stream copy, no re-encode).
-    ap.add_argument("--part", help="k/n: render only the k-th of n equal parts (1-based)")
-    ap.add_argument("--join", type=int, help="join n rendered parts into the final file")
-    args = ap.parse_args()
-    tour = json.load(open(args.tour, encoding="utf-8"))
-    # The store's address state, not build.py's nearest-polygon guess (Natural Earth's
-    # simplified borders put border-town stores like Hammond, IN in the wrong state).
+def address_states(tour: dict, args) -> None:
+    """The store's address state, not build.py's nearest-polygon guess (Natural Earth's
+    simplified borders put border-town stores like Hammond, IN in the wrong state)."""
     addr = {x["ref"]: x["state"] for x in json.load(open(CACHE / "stores.json", encoding="utf-8"))}
     for x in tour["stops"]:
         x["state"] = addr[x["ref"]]
-    OUT.mkdir(exist_ok=True)
-    if args.stills:
-        init(tour, args.platform)
-        for sec in map(float, args.stills.split(",")):
-            i = min(int(sec * FPS), SECONDS * FPS - 1)
-            Image.frombytes("RGB", (W, H), render(i)).save(OUT / f"{args.platform}_{sec:04.1f}.png")
-        return
-    slug = f"chickfila_{args.platform}"
-    silent, wav = OUT / f"{slug}_silent.mp4", OUT / f"{slug}_ticks.wav"
-    n, t0 = SECONDS * FPS, time.time()
-    if args.join:
-        parts = [OUT / f"{slug}_part{k}.mp4" for k in range(1, args.join + 1)]
-        lst = OUT / f"{slug}_parts.txt"
-        lst.write_text("".join(f"file '{q.name}'\n" for q in parts))
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst),
-                        "-c", "copy", str(silent)], check=True)
-        lst.unlink()
-        for q in parts:
-            q.unlink()
-    else:
-        frames = range(n)
-        if args.part:
-            k, m = map(int, args.part.split("/"))
-            frames = range((k - 1) * n // m, k * n // m)
-            silent = OUT / f"{slug}_part{k}.mp4"
-        ff = K.encoder(silent)
-        if args.workers == 1:                  # in-process: one copy of the map data, not two
-            init(tour, args.platform)
-            it = map(render, frames)
-            pool = None
-        else:
-            pool = Pool(args.workers, initializer=init, initargs=(tour, args.platform))
-            it = pool.imap(render, frames, chunksize=1)
-        for i, frame in enumerate(it):
-            try:
-                ff.stdin.write(frame)
-            except OSError:                    # ffmpeg died; say how, not just "broken pipe"
-                sys.exit(f"ffmpeg exited with {ff.wait()} at frame {frames[i]}")
-            if i % 50 == 0:
-                print(f"{i}/{len(frames)} frames, {time.time() - t0:.0f} s", flush=True)
-        if pool:
-            pool.close()
-        ff.stdin.close()
-        if ff.wait():
-            sys.exit(ff.returncode)
-        if args.part:
-            print("wrote", silent, f"{time.time() - t0:.0f} s")
-            return
-    out = OUT / f"{slug}.mp4"
-    if args.sound:
-        sound(tour, wav)
-        K.mux(silent, wav, out)
-        silent.unlink()
-        wav.unlink()
-    else:
-        silent.replace(out)
-    print("wrote", out, f"{time.time() - t0:.0f} s")
 
 
 if __name__ == "__main__":
-    main()
+    # The command line render.ps1 drives (--platform, --workers, --part, --join, --sound) and
+    # --stills / --tour for checking: reel_tour.main. Sound stays on unless --silent.
+    T.main("chickfila", SECONDS, init, render, sound, out=OUT, cache=CACHE, prepare=address_states,
+           workers=2, sound_default=True)
